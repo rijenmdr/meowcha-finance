@@ -1,0 +1,14 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - generic [ref=e15]:
+      - generic [ref=e16]: Meowcha
+      - generic [ref=e17]: Finance
+    - generic [ref=e18]:
+      - generic [ref=e19]: Email
+      - textbox "Email" [ref=e20]
+    - generic [ref=e21]:
+      - generic [ref=e22]: Password
+      - textbox "Password" [ref=e23]
+    - button "Sign in" [ref=e24] [cursor=pointer]
+    - generic [ref=e25]: Access is restricted to the Meowcha admin account.
+  - button "Open Next.js Dev Tools" [ref=e31] [cursor=pointer]
