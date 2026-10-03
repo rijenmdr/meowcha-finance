@@ -1,4 +1,4 @@
-import { Suspense, type ReactNode } from "react";
+import { Suspense, type CSSProperties, type ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { FinanceProvider } from "@/lib/finance-context";
 import { getDashboardData } from "@/lib/data";
@@ -8,6 +8,7 @@ import { Header } from "@/components/Header";
 import { TopNav } from "@/components/TopNav";
 import { DialogHost } from "@/components/DialogHost";
 import { DashboardSkeleton } from "@/components/DashboardSkeleton";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 
 export const dynamic = "force-dynamic";
 
@@ -49,14 +50,18 @@ export default async function DashboardLayout({ children }: { children: ReactNod
   if (!userEmail) redirect("/login");
 
   return (
-    <div className="flex min-h-screen flex-col bg-canvas font-sans text-15 text-ink">
-      <TopNav userEmail={userEmail} />
-      <div className="flex min-h-0 flex-1">
-        <Sidebar userEmail={userEmail} />
+    <SidebarProvider
+      defaultOpen
+      className="bg-canvas font-sans text-15 text-ink"
+      style={{ "--sidebar-width": "14.75rem", "--sidebar-width-mobile": "18rem" } as CSSProperties}
+    >
+      <Sidebar userEmail={userEmail} />
+      <SidebarInset className="min-h-screen bg-canvas">
+        <TopNav userEmail={userEmail} />
         <Suspense fallback={<DashboardSkeleton />}>
           <DashboardContent>{children}</DashboardContent>
         </Suspense>
-      </div>
-    </div>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }

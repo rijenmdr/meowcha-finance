@@ -1,4 +1,6 @@
 import { useId } from "react";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface TablePaginationProps {
     totalRows: number;
@@ -14,9 +16,7 @@ interface TablePaginationProps {
     onRowsPerPageChange: (nextPageSize: number) => void;
 }
 
-const buttonClass =
-    "min-w-14 cursor-pointer border border-line px-2 py-1 text-11 text-ink transition-colors hover:border-accent-400 hover:text-accent-700 disabled:cursor-not-allowed disabled:opacity-45";
-const selectClass = "min-h-7 border border-line bg-surface px-2 py-1 text-11 text-ink";
+const buttonClass = "min-w-14 rounded-none border-line bg-transparent text-11 text-ink hover:border-accent-400 hover:text-accent-700";
 
 export function TablePagination({
     totalRows,
@@ -44,25 +44,27 @@ export function TablePagination({
             </div>
             <div className="ml-auto flex items-center gap-2">
                 <label htmlFor={selectId}>Rows</label>
-                <select
-                    id={selectId}
-                    value={pageSize}
-                    onChange={(e) => onRowsPerPageChange(Number(e.target.value))}
-                    className={selectClass}
-                >
-                    <option value={10}>10</option>
-                    <option value={20}>20</option>
-                    <option value={50}>50</option>
-                </select>
-                <button type="button" onClick={onPreviousPage} disabled={!canPreviousPage} className={buttonClass}>
+                <Select value={String(pageSize)} onValueChange={(value) => onRowsPerPageChange(Number(value))}>
+                    <SelectTrigger id={selectId} size="sm" className="w-18 rounded-none border-line bg-surface text-11 text-ink">
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="border border-line bg-canvas text-ink ring-0">
+                        <SelectGroup>
+                            <SelectItem value="10">10</SelectItem>
+                            <SelectItem value="20">20</SelectItem>
+                            <SelectItem value="50">50</SelectItem>
+                        </SelectGroup>
+                    </SelectContent>
+                </Select>
+                <Button type="button" variant="outline" size="sm" onClick={onPreviousPage} disabled={!canPreviousPage} className={buttonClass}>
                     Prev
-                </button>
+                </Button>
                 <div className="min-w-20 text-center text-ink/70">
                     {page} / {totalPages}
                 </div>
-                <button type="button" onClick={onNextPage} disabled={!canNextPage} className={buttonClass}>
+                <Button type="button" variant="outline" size="sm" onClick={onNextPage} disabled={!canNextPage} className={buttonClass}>
                     Next
-                </button>
+                </Button>
             </div>
         </div>
     );

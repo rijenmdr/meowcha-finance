@@ -5,6 +5,21 @@ import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { Logo } from "./Logo";
+import { Button } from "@/components/ui/button";
+import {
+  Sidebar as AppSidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarRail,
+  SidebarSeparator,
+} from "@/components/ui/sidebar";
 
 const NAV_ITEMS = [
   {
@@ -153,7 +168,7 @@ const NAV_SECTIONS: { label: string | null; hrefs: string[] }[] = [
 ];
 
 const navLinkClass =
-  "flex cursor-pointer items-center gap-2.5 border-l-2 border-transparent px-2.5 py-2.25 text-14 text-ink no-underline hover:not-aria-[current=page]:bg-ink/5 aria-[current=page]:border-accent-500 aria-[current=page]:bg-accent-500/8 aria-[current=page]:font-semibold aria-[current=page]:text-accent-700";
+  "h-10 rounded-none border-l-2 border-transparent px-2.5 py-2 text-14 text-ink no-underline hover:bg-ink/5 data-[active=true]:border-accent-500 data-[active=true]:bg-accent-500/8 data-[active=true]:font-semibold data-[active=true]:text-accent-700";
 
 export function Sidebar({ userEmail }: { userEmail: string }) {
   const router = useRouter();
@@ -167,49 +182,72 @@ export function Sidebar({ userEmail }: { userEmail: string }) {
   }
 
   return (
-    <div className="flex w-59 flex-none flex-col border-r border-line bg-surface py-5">
-      <div className="mb-3.5 flex items-center gap-2.5 border-b border-line px-5 pb-5">
-        <Logo className="size-9" />
-        <div>
-          <div className="font-condensed text-20 font-semibold tracking-[-0.01em]">Meowcha</div>
-          <div className="mt-0.75 text-11 tracking-widest text-accent-500 uppercase">Finance</div>
-        </div>
-      </div>
-      <nav className="flex flex-col gap-4.5 px-2.5">
-        {NAV_SECTIONS.map((section) => (
-          <div key={section.label ?? "top"} className="flex flex-col gap-0.5">
-            {section.label && <div className="px-3 pb-1.5 text-10 tracking-widest text-ink/50 uppercase">{section.label}</div>}
-            {NAV_ITEMS.filter((item) => section.hrefs.includes(item.href))
-              .sort((a, b) => section.hrefs.indexOf(a.href) - section.hrefs.indexOf(b.href))
-              .map((item) => {
-                const active = pathname === item.href;
-                return (
-                  <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={navLinkClass}>
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      {item.icon}
-                    </svg>
-                    <span>{item.label}</span>
-                  </Link>
-                );
-              })}
+    <AppSidebar collapsible="icon" className="border-r border-sidebar-border bg-surface">
+      <SidebarHeader className="gap-0 border-b border-sidebar-border px-5 py-5">
+        <div className="flex items-center gap-2.5">
+          <Logo className="size-9" />
+          <div className="min-w-0 group-data-[collapsible=icon]:hidden">
+            <div className="font-condensed text-20 font-semibold tracking-[-0.01em]">Meowcha</div>
+            <div className="mt-0.75 text-11 tracking-widest text-accent-500 uppercase">Finance</div>
           </div>
+        </div>
+      </SidebarHeader>
+
+      <SidebarContent className="py-4">
+        {NAV_SECTIONS.map((section) => (
+          <SidebarGroup key={section.label ?? "top"} className="px-2.5 py-0">
+            {section.label && (
+              <SidebarGroupLabel className="px-3 pb-1.5 text-10 tracking-widest text-ink/50 uppercase">
+                {section.label}
+              </SidebarGroupLabel>
+            )}
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {NAV_ITEMS.filter((item) => section.hrefs.includes(item.href))
+                  .sort((a, b) => section.hrefs.indexOf(a.href) - section.hrefs.indexOf(b.href))
+                  .map((item) => {
+                    const active = pathname === item.href;
+                    return (
+                      <SidebarMenuItem key={item.href}>
+                        <SidebarMenuButton render={<Link href={item.href} />} isActive={active} tooltip={item.label} className={navLinkClass}>
+                          <svg
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            {item.icon}
+                          </svg>
+                          <span>{item.label}</span>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
         ))}
-      </nav>
-      <div className="mt-auto border-t border-line px-5 pt-3.5 text-11 text-ink/55">
-        {email && <div className="mb-2 break-all">{email}</div>}
-        <button type="button" onClick={handleLogout} className="mb-2.5 cursor-pointer border-none bg-transparent p-0 text-11 text-accent-500">
-          Sign out
-        </button>
-      </div>
-    </div>
+      </SidebarContent>
+
+      <SidebarSeparator className="mx-0 bg-line" />
+      <SidebarFooter className="px-5 py-4">
+        {email && <div className="break-all text-11 text-ink/55 group-data-[collapsible=icon]:hidden">{email}</div>}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={handleLogout}
+          className="justify-start rounded-none px-0 font-condensed text-12 font-semibold text-accent-600 hover:bg-transparent hover:text-accent-700 group-data-[collapsible=icon]:justify-center"
+        >
+          <span className="group-data-[collapsible=icon]:hidden">Sign out</span>
+          <span className="hidden group-data-[collapsible=icon]:inline">Out</span>
+        </Button>
+      </SidebarFooter>
+      <SidebarRail />
+    </AppSidebar>
   );
 }

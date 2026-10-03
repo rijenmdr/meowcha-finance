@@ -2,7 +2,9 @@
 
 import { usePathname } from "next/navigation";
 import { useFinance } from "@/lib/finance-context";
-import { CornerBrackets } from "./CornerBrackets";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { PlusIcon } from "lucide-react";
 
 const PAGE_TITLES: Record<string, [string, string]> = {
   "/overview": ["Overview", "Income, expenses and cash flow at a glance"],
@@ -19,12 +21,11 @@ const PAGE_TITLES: Record<string, [string, string]> = {
   "/payment-methods": ["Payment methods", "How customers pay for their orders"],
 };
 
-const presetButtonClass =
-  "inline-flex cursor-pointer items-center border border-line bg-transparent px-2.5 py-1.5 font-condensed text-13 font-semibold text-ink";
+const presetButtonClass = "rounded-none border-line bg-transparent font-condensed text-13 font-semibold text-ink hover:bg-surface";
 
 const dateLabelClass = "text-11 text-ink/60";
 
-const dateInputClass = "min-h-8.5 border border-line bg-surface px-2 py-1.25 text-13 text-ink";
+const dateInputClass = "h-8.5 rounded-none border-line bg-surface text-13 text-ink";
 
 export function Header() {
   const pathname = usePathname();
@@ -63,39 +64,35 @@ export function Header() {
       </div>
       <div className="flex flex-wrap items-end gap-2.5">
         <div className="flex gap-1.5">
-          <button type="button" onClick={presetMonth} className={presetButtonClass}>
+          <Button type="button" variant="outline" size="sm" onClick={presetMonth} className={presetButtonClass}>
             This month
-          </button>
-          <button type="button" onClick={presetQuarter} className={presetButtonClass}>
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={presetQuarter} className={presetButtonClass}>
             Last 3 months
-          </button>
-          <button type="button" onClick={presetYTD} className={presetButtonClass}>
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={presetYTD} className={presetButtonClass}>
             YTD
-          </button>
-          <button type="button" onClick={presetAll} className={presetButtonClass}>
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={presetAll} className={presetButtonClass}>
             All
-          </button>
+          </Button>
         </div>
         <div className="flex flex-col gap-1">
           <label className={dateLabelClass}>From</label>
-          <input type="date" value={state.dateStart} onChange={(e) => setDateStart(e.target.value)} className={dateInputClass} />
+          <Input type="date" value={state.dateStart} onChange={(e) => setDateStart(e.target.value)} className={dateInputClass} />
         </div>
         <div className="flex flex-col gap-1">
           <label className={dateLabelClass}>To</label>
-          <input type="date" value={state.dateEnd} onChange={(e) => setDateEnd(e.target.value)} className={dateInputClass} />
+          <Input type="date" value={state.dateEnd} onChange={(e) => setDateEnd(e.target.value)} className={dateInputClass} />
         </div>
-        <button
+        <Button
           type="button"
           onClick={onAddClick}
-          className="relative inline-flex cursor-pointer items-center gap-1.5 border border-accent-500 bg-accent-500 px-4 py-2.25 font-condensed text-14 font-semibold text-canvas"
+          className="rounded-none border-accent-500 bg-accent-500 font-condensed text-14 font-semibold text-canvas hover:bg-accent-600"
         >
-          <CornerBrackets className="text-accent-500/70" />
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 12h14" />
-            <path d="M12 5v14" />
-          </svg>
+          <PlusIcon data-icon="inline-start" />
           {addLabel}
-        </button>
+        </Button>
       </div>
     </div>
   );

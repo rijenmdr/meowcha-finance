@@ -2,10 +2,11 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { CornerBrackets } from "@/components/CornerBrackets";
 import { Logo } from "@/components/Logo";
-import { fieldLabelClass, inputClass, saveButtonClass } from "@/components/DialogOverlay";
-import { cx } from "@/lib/cx";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 
 export default function LoginPage() {
@@ -44,42 +45,48 @@ export default function LoginPage() {
 
   return (
     <div className="grid min-h-screen place-items-center bg-canvas p-5 font-sans text-15 text-ink">
-      <form
-        onSubmit={handleSubmit}
-        className="relative flex w-full max-w-95 flex-col gap-3.5 border border-line bg-surface p-7 shadow-card"
-      >
-        <CornerBrackets />
+      <Card className="w-full max-w-95 rounded-none border border-line bg-surface py-0 text-ink shadow-card ring-0">
+        <CardContent className="p-7">
+          <form onSubmit={handleSubmit} className="flex flex-col gap-3.5">
+            <div className="mb-1.5 flex items-center gap-3">
+              <Logo className="size-10" />
+              <div>
+                <div className="font-condensed text-22 font-semibold tracking-[-0.01em]">Meowcha</div>
+                <div className="mt-0.75 text-11 tracking-widest text-accent-500 uppercase">Finance</div>
+              </div>
+            </div>
 
-        <div className="mb-1.5 flex items-center gap-3">
-          <Logo className="size-10" />
-          <div>
-            <div className="font-condensed text-22 font-semibold tracking-[-0.01em]">Meowcha</div>
-            <div className="mt-0.75 text-11 tracking-widest text-accent-500 uppercase">Finance</div>
-          </div>
-        </div>
+            <div className="flex flex-col gap-1.25">
+              <Label htmlFor="email" className="text-13 font-medium text-ink/75">
+                Email
+              </Label>
+              <Input id="email" type="email" name="email" autoComplete="username" required className="rounded-none border-line bg-canvas text-14" />
+            </div>
 
-        <div>
-          <label htmlFor="email" className={fieldLabelClass}>
-            Email
-          </label>
-          <input id="email" type="email" name="email" autoComplete="username" required className={inputClass} />
-        </div>
+            <div className="flex flex-col gap-1.25">
+              <Label htmlFor="password" className="text-13 font-medium text-ink/75">
+                Password
+              </Label>
+              <Input
+                id="password"
+                type="password"
+                name="password"
+                autoComplete="current-password"
+                required
+                className="rounded-none border-line bg-canvas text-14"
+              />
+            </div>
 
-        <div>
-          <label htmlFor="password" className={fieldLabelClass}>
-            Password
-          </label>
-          <input id="password" type="password" name="password" autoComplete="current-password" required className={inputClass} />
-        </div>
+            {error && <div className="text-13 text-error">{error}</div>}
 
-        {error && <div className="text-13 text-error">{error}</div>}
+            <Button type="submit" disabled={pending} className="mt-1.5 w-full rounded-none border-accent-500 bg-accent-500 font-condensed text-14 font-semibold text-canvas hover:bg-accent-600">
+              {pending ? "Signing in…" : "Sign in"}
+            </Button>
 
-        <button type="submit" disabled={pending} className={cx(saveButtonClass, "mt-1.5 flex w-full justify-center")}>
-          {pending ? "Signing in…" : "Sign in"}
-        </button>
-
-        <div className="mt-1 text-11 text-ink/55">Access is restricted to the Meowcha admin account.</div>
-      </form>
+            <div className="mt-1 text-11 text-ink/55">Access is restricted to the Meowcha admin account.</div>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   );
 }
