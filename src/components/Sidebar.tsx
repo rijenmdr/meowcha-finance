@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { signOut, useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { Logo } from "./Logo";
 
 const NAV_ITEMS = [
@@ -154,13 +155,15 @@ const NAV_SECTIONS: { label: string | null; hrefs: string[] }[] = [
 const navLinkClass =
   "flex cursor-pointer items-center gap-2.5 border-l-2 border-transparent px-2.5 py-2.25 text-14 text-ink no-underline hover:not-aria-[current=page]:bg-ink/5 aria-[current=page]:border-accent-500 aria-[current=page]:bg-accent-500/8 aria-[current=page]:font-semibold aria-[current=page]:text-accent-700";
 
-export function Sidebar() {
+export function Sidebar({ userEmail }: { userEmail: string }) {
+  const router = useRouter();
   const pathname = usePathname();
-  const { data: session } = useSession();
-  const email = session?.user?.email;
+  const email = userEmail;
 
-  function handleLogout() {
-    signOut({ callbackUrl: "/login" });
+  async function handleLogout() {
+    await getSupabaseBrowserClient().auth.signOut();
+    router.push("/login");
+    router.refresh();
   }
 
   return (

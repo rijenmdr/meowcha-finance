@@ -2,12 +2,15 @@ import { cx } from "@/lib/cx";
 import { Panel } from "./Panel";
 import { DeleteButton, EditButton } from "./IconButton";
 import { useFinance } from "@/lib/finance-context";
+import { usePagination } from "@/lib/use-pagination";
+import { TablePagination } from "./TablePagination";
 
 interface OrderRow {
   id: string;
   orderNumber: string;
   dateDisplay: string;
   customer: string;
+  deliveryLocation: string | null;
   deliveryProvider: string | null;
   paymentMethod: string | null;
   itemsSummary: string;
@@ -31,6 +34,20 @@ const textButtonClass = "cursor-pointer border-none bg-transparent p-0 font-cond
 
 export function OrdersTable({ rows, empty }: { rows: OrderRow[]; empty: boolean }) {
   const { openEditOrder, deleteOrder, advanceOrderStatus, openRecordPayment } = useFinance();
+  const {
+    pageRows,
+    totalRows,
+    page,
+    pageSize,
+    totalPages,
+    startIndex,
+    endIndex,
+    canPreviousPage,
+    canNextPage,
+    previousPage,
+    nextPage,
+    setRowsPerPage,
+  } = usePagination(rows);
 
   return (
     <Panel>
@@ -47,7 +64,7 @@ export function OrdersTable({ rows, empty }: { rows: OrderRow[]; empty: boolean 
           </tr>
         </thead>
         <tbody>
-          {rows.map((o) => (
+          {pageRows.map((o) => (
             <tr key={o.id}>
               <td className={cx(tdClass, "whitespace-nowrap")}>
                 <div className="font-semibold">{o.orderNumber}</div>
@@ -55,6 +72,7 @@ export function OrdersTable({ rows, empty }: { rows: OrderRow[]; empty: boolean 
               </td>
               <td className={tdClass}>
                 <div>{o.customer}</div>
+                {o.deliveryLocation && <div className="text-11 text-ink/60">Deliver to: {o.deliveryLocation}</div>}
                 {o.deliveryProvider && <div className="text-11 text-ink/60">Delivery: {o.deliveryProvider}</div>}
                 {o.paymentMethod && <div className="text-11 text-ink/60">Pays by {o.paymentMethod}</div>}
               </td>
@@ -100,6 +118,19 @@ export function OrdersTable({ rows, empty }: { rows: OrderRow[]; empty: boolean 
           ))}
         </tbody>
       </table>
+      <TablePagination
+        totalRows={totalRows}
+        startIndex={startIndex}
+        endIndex={endIndex}
+        page={page}
+        totalPages={totalPages}
+        pageSize={pageSize}
+        canPreviousPage={canPreviousPage}
+        canNextPage={canNextPage}
+        onPreviousPage={previousPage}
+        onNextPage={nextPage}
+        onRowsPerPageChange={setRowsPerPage}
+      />
       {empty && <div className="px-4 py-6 text-13 text-ink/55">No orders in this date range.</div>}
     </Panel>
   );

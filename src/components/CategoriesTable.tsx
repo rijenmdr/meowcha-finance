@@ -3,6 +3,8 @@ import { Panel } from "./Panel";
 import { DeleteButton, EditButton } from "./IconButton";
 import { useFinance } from "@/lib/finance-context";
 import type { TxnType } from "@/lib/types";
+import { usePagination } from "@/lib/use-pagination";
+import { TablePagination } from "./TablePagination";
 
 interface CategoryRow {
   id: string;
@@ -16,6 +18,20 @@ const tdClass = "border-b border-line-soft px-4 py-2.5";
 export function CategoriesTable({ type, rows }: { type: TxnType; rows: CategoryRow[] }) {
   const { openAddCategory, openEditCategory, deleteCategory } = useFinance();
   const title = type === "income" ? "Income" : "Expense";
+  const {
+    pageRows,
+    totalRows,
+    page,
+    pageSize,
+    totalPages,
+    startIndex,
+    endIndex,
+    canPreviousPage,
+    canNextPage,
+    previousPage,
+    nextPage,
+    setRowsPerPage,
+  } = usePagination(rows);
 
   return (
     <Panel>
@@ -31,7 +47,7 @@ export function CategoriesTable({ type, rows }: { type: TxnType; rows: CategoryR
       </div>
       <table className="w-full text-13">
         <tbody>
-          {rows.map((c) => (
+          {pageRows.map((c) => (
             <tr key={c.id}>
               <td className={tdClass}>
                 {c.name}
@@ -46,6 +62,19 @@ export function CategoriesTable({ type, rows }: { type: TxnType; rows: CategoryR
           ))}
         </tbody>
       </table>
+      <TablePagination
+        totalRows={totalRows}
+        startIndex={startIndex}
+        endIndex={endIndex}
+        page={page}
+        totalPages={totalPages}
+        pageSize={pageSize}
+        canPreviousPage={canPreviousPage}
+        canNextPage={canNextPage}
+        onPreviousPage={previousPage}
+        onNextPage={nextPage}
+        onRowsPerPageChange={setRowsPerPage}
+      />
       {rows.length === 0 && <div className="px-4 py-6 text-13 text-ink/55">No {type} categories yet.</div>}
     </Panel>
   );

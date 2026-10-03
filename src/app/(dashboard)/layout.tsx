@@ -1,8 +1,8 @@
 import { Suspense, type ReactNode } from "react";
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
 import { FinanceProvider } from "@/lib/finance-context";
 import { getDashboardData } from "@/lib/data";
+import { requireSupabaseUser } from "@/lib/supabase-auth";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
 import { TopNav } from "@/components/TopNav";
@@ -43,14 +43,16 @@ async function DashboardContent({ children }: { children: ReactNode }) {
 export default async function DashboardLayout({ children }: { children: ReactNode }) {
   // proxy.ts already gates these routes; this keeps the data load safe if the
   // proxy matcher ever changes or is bypassed.
-  const session = await auth();
-  if (!session?.user) redirect("/login");
+  const user = await requireSupabaseUser().catch(() => null);
+  if (!user) redirect("/login");
+  const userEmail = user.email;
+  if (!userEmail) redirect("/login");
 
   return (
     <div className="flex min-h-screen flex-col bg-canvas font-sans text-15 text-ink">
-      <TopNav />
+      <TopNav userEmail={userEmail} />
       <div className="flex min-h-0 flex-1">
-        <Sidebar />
+        <Sidebar userEmail={userEmail} />
         <Suspense fallback={<DashboardSkeleton />}>
           <DashboardContent>{children}</DashboardContent>
         </Suspense>

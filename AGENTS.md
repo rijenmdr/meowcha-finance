@@ -13,9 +13,9 @@ A single-admin finance dashboard for a small bookbinding business. It covers tra
 ## Stack
 
 - **Next.js 16** (App Router) with **React 19** and **TypeScript** in strict mode
-- **NextAuth v5 (beta)**: a Credentials provider with a JWT session and one admin account taken from env vars
+- **Supabase Auth**: email/password sign-in with server-side session checks and a single admin account
 - **Supabase** (Postgres) through `@supabase/supabase-js`, used **only on the server** with the service role key
-- **bcryptjs** for checking the admin password hash
+- **@supabase/ssr** for browser sign-in and cookie-based session refresh
 - ESLint 9 flat config (`eslint-config-next` core-web-vitals + typescript)
 - **Tailwind CSS v4** (`@tailwindcss/postcss`): utility classes only, with design tokens in `globals.css` `@theme`
 
@@ -34,24 +34,23 @@ There is no test suite yet.
 ```
 src/
   app/
-    layout.tsx               # root layout: fonts (Barlow, Barlow Condensed), SessionProvider
+    layout.tsx               # root layout: fonts (Barlow, Barlow Condensed)
     page.tsx                 # redirects "/" → "/overview"
     globals.css              # Tailwind import, @theme design tokens, a few base rules
     login/page.tsx           # client-side sign-in form
-    api/auth/[...nextauth]/  # NextAuth route handlers
     (dashboard)/             # route group: every authenticated page
       layout.tsx             # auth check, loads all data, wraps in FinanceProvider + shell
       overview/ orders/ transactions/ budget/ invoices/ customers/ categories/ channels/ sources/ products/ delivery-providers/ payment-methods/
-  auth.ts                    # NextAuth config (admin credentials, login rate limiting)
   proxy.ts                   # route gate (Next 16's replacement for middleware.ts)
   components/                # flat folder of UI components (no subfolders)
   lib/
     types.ts                 # domain types (Transaction, Budget, Invoice, Customer, Category…)
     supabase.ts              # server-only Supabase client singleton (service role)
+    supabase-auth.ts         # server-side Supabase auth/session checks
+    supabase-browser.ts      # browser Supabase client for login/sign-out
     data.ts                  # server-only read queries (getX / getDashboardData)
     actions.ts               # "use server" mutations (saveXAction / deleteXAction)
     validate.ts              # server-only runtime parsers for action inputs
-    rate-limit.ts            # in-memory login failure limiter
     finance-context.tsx      # client-side store: state, dialogs, derived dashboard data
     calculations.ts          # pure aggregation helpers (charts, breakdowns, deltas)
     format.ts                # pure formatting/date helpers (fmtMoney, fmtDate, monthKey…)
@@ -65,7 +64,7 @@ supabase/
 
 ## Architecture and data flow
 
-1. **Auth gate.** `src/proxy.ts` sends unauthenticated requests to `/login`. `(dashboard)/layout.tsx` checks `auth()` again as defense in depth. Keep both checks.
+1. **Auth gate.** `src/proxy.ts` sends unauthenticated requests to `/login`. `(dashboard)/layout.tsx` checks the Supabase user again as defense in depth. Keep both checks.
 2. **Reads.** The dashboard layout (`dynamic = "force-dynamic"`) calls `getDashboardData()` from `lib/data.ts` once, inside a `<Suspense>` boundary (`DashboardContent`), and passes the results into `FinanceProvider` as `initial*` props. TopNav and Sidebar stream first and `DashboardSkeleton` fills the content area until the data arrives. A `loading.tsx` would not cover this, because it doesn't wrap its own segment's layout.
 3. **Client state.** `lib/finance-context.tsx` holds all records in React state. Pages are client components that read from `useDashboardData()` (derived, display-ready values) and `useFinance()` (state + mutators such as `submitInvoice`, `closeDialog`).
 4. **Writes.** Dialog submits (`submitX`) are async: they `await` the server action, then commit to local state and close the dialog, so a failed save leaves the dialog open with an error. Deletes and `markInvoicePaid` stay **optimistic**: they update local state first and call the action without waiting (`.catch(console.error)`). New IDs come from `crypto.randomUUID()` on the client.
@@ -130,7 +129,6 @@ supabase/
 - RLS stays **enabled with no policies** on every table.
 - Every server action checks the session and validates its input, with no exceptions.
 - Security headers live in `next.config.ts`. Keep `frame-ancestors 'none'` / `X-Frame-Options: DENY`.
-- The login rate limiter is in-memory and works per instance only. Flag this if you move to serverless or multi-instance hosting.
 - Use the `owasp-security` skill in `.claude/skills/` for security reviews.
 
 ## Environment
@@ -139,10 +137,12 @@ Set these in `.env.local` (gitignored via `.env*`):
 
 | Variable | Purpose |
 | --- | --- |
-| `AUTH_SECRET` | NextAuth JWT signing secret |
 | `ADMIN_EMAIL` | the only allowed login email |
-| `ADMIN_PASSWORD_HASH` | bcrypt hash of the admin password. **Escape every `$` as `\$`**, or Next's env expansion will corrupt it |
+| `NEXT_PUBLIC_ADMIN_EMAIL` | optional client-side copy of the allowed login email |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL for browser and server auth helpers |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | public Supabase anon key for browser auth helpers |
 | `SUPABASE_URL` | Supabase project URL |
+| `SUPABASE_ANON_KEY` | Supabase anon key for server auth helpers |
 | `SUPABASE_SERVICE_ROLE_KEY` | server-only service role key |
 
 ## Gotchas

@@ -197,6 +197,7 @@ export function parseOrder(value: unknown): Omit<Order, "orderNumber"> {
     status: v.status as OrderStatus,
     items,
     deliveryCharge,
+    deliveryLocation: v.deliveryLocation != null && String(v.deliveryLocation).trim() !== "" ? str(v.deliveryLocation, "deliveryLocation", { max: 500 }) : null,
     deliveryProviderId: v.deliveryProviderId != null && v.deliveryProviderId !== "" ? id(v.deliveryProviderId, "deliveryProviderId") : null,
     paymentMethodId: v.paymentMethodId != null && v.paymentMethodId !== "" ? id(v.paymentMethodId, "paymentMethodId") : null,
     amountPaid,

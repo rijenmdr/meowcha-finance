@@ -121,7 +121,7 @@ export async function getOrders(): Promise<Order[]> {
   const { data, error } = await getSupabase()
     .from("orders")
     .select(
-      "id, order_number, customer_id, order_date, order_status, sub_total, delivery_charge, delivery_provider_id, payment_method_id, total_price, amount_paid, payment_status, order_items (id, product_id, quantity, sub_total)",
+      "id, order_number, customer_id, order_date, order_status, sub_total, delivery_charge, delivery_location, delivery_provider_id, payment_method_id, total_price, amount_paid, payment_status, order_items (id, product_id, quantity, sub_total)",
     )
     .order("order_date", { ascending: true })
     .order("order_number", { ascending: true });
@@ -140,6 +140,7 @@ export async function getOrders(): Promise<Order[]> {
     })),
     subTotal: row.sub_total,
     deliveryCharge: row.delivery_charge,
+    deliveryLocation: row.delivery_location,
     deliveryProviderId: row.delivery_provider_id,
     paymentMethodId: row.payment_method_id,
     totalPrice: row.total_price,

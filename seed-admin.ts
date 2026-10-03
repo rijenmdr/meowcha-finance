@@ -1,6 +1,5 @@
 import dotenv from "dotenv";
 import path from "path";
-import bcrypt from "bcryptjs";
 import { createClient } from "@supabase/supabase-js";
 
 // Load .env.local
@@ -35,15 +34,15 @@ async function seed() {
 
   try {
     console.log(`🌱 Creating admin user: ${email}`);
-    const passwordHash = await bcrypt.hash(password, 10);
-    
     const supabase = createClient(url, serviceRoleKey, {
       auth: { persistSession: false },
     });
 
-    const { error } = await supabase
-      .from("admin_users")
-      .upsert({ email: email.toLowerCase(), password_hash: passwordHash }, { onConflict: "email" });
+    const { error } = await supabase.auth.admin.createUser({
+      email: email.toLowerCase(),
+      password,
+      email_confirm: true,
+    });
 
     if (error) {
       throw new Error(error.message);

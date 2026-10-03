@@ -2,6 +2,8 @@ import { cx } from "@/lib/cx";
 import { Panel } from "./Panel";
 import { DeleteButton, EditButton } from "./IconButton";
 import { useFinance } from "@/lib/finance-context";
+import { usePagination } from "@/lib/use-pagination";
+import { TablePagination } from "./TablePagination";
 
 interface BudgetRow {
   id: string;
@@ -19,6 +21,20 @@ const tdClass = "border-b border-line-soft px-4 py-2.5";
 
 export function BudgetTable({ rows, monthsInRangeLabel }: { rows: BudgetRow[]; monthsInRangeLabel: string }) {
   const { openEditBudget, deleteBudget } = useFinance();
+  const {
+    pageRows,
+    totalRows,
+    page,
+    pageSize,
+    totalPages,
+    startIndex,
+    endIndex,
+    canPreviousPage,
+    canNextPage,
+    previousPage,
+    nextPage,
+    setRowsPerPage,
+  } = usePagination(rows);
 
   return (
     <Panel>
@@ -34,7 +50,7 @@ export function BudgetTable({ rows, monthsInRangeLabel }: { rows: BudgetRow[]; m
           </tr>
         </thead>
         <tbody>
-          {rows.map((b) => (
+          {pageRows.map((b) => (
             <tr key={b.id}>
               <td className={tdClass}>{b.category}</td>
               <td className={cx(tdClass, "text-right text-ink/70")}>{b.targetDisplay}</td>
@@ -64,6 +80,19 @@ export function BudgetTable({ rows, monthsInRangeLabel }: { rows: BudgetRow[]; m
           ))}
         </tbody>
       </table>
+      <TablePagination
+        totalRows={totalRows}
+        startIndex={startIndex}
+        endIndex={endIndex}
+        page={page}
+        totalPages={totalPages}
+        pageSize={pageSize}
+        canPreviousPage={canPreviousPage}
+        canNextPage={canNextPage}
+        onPreviousPage={previousPage}
+        onNextPage={nextPage}
+        onRowsPerPageChange={setRowsPerPage}
+      />
       <div className="px-4 py-2 text-11 text-ink/55">Targets scale to the selected date range ({monthsInRangeLabel}).</div>
     </Panel>
   );

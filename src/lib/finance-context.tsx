@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { TODAY } from "./mock-data";
 import { addDays, daysBetween, fmtDate, fmtMoney, inRange, monthsBetweenInclusive } from "./format";
 import {
@@ -142,11 +143,13 @@ interface CustomerSubmitValues {
 }
 
 interface OrderSubmitValues {
+  id?: string;
   customerId: string;
   orderDate: string;
   status: OrderStatus;
   items: OrderItem[];
   deliveryCharge: number;
+  deliveryLocation: string | null;
   deliveryProviderId: string | null;
   paymentMethodId: string | null;
   payment: PaymentSubmitValues | null; // new orders only; later payments go through submitPayment
@@ -295,6 +298,8 @@ export function FinanceProvider({
   initialDeliveryProviders,
   initialPaymentMethods,
 }: FinanceProviderProps) {
+  const router = useRouter();
+
   // Random rather than a per-session counter: a counter restarts on every page
   // load, so a new record could reuse (and upsert over) an id saved earlier.
   const uid = () => crypto.randomUUID();
@@ -718,8 +723,15 @@ export function FinanceProvider({
     });
   }, []);
 
-  const openAddOrder = useCallback(() => setState((s) => ({ ...s, dialog: "order", editId: null })), []);
-  const openEditOrder = useCallback((id: string) => setState((s) => ({ ...s, dialog: "order", editId: id })), []);
+  const openAddOrder = useCallback(() => {
+    router.push("/orders/new");
+  }, [router]);
+  const openEditOrder = useCallback(
+    (id: string) => {
+      router.push(`/orders/${id}`);
+    },
+    [router],
+  );
   const deleteOrder = useCallback((id: string) => {
     const o = stateRef.current.orders.find((x) => x.id === id);
     if (!o) return;
@@ -749,19 +761,21 @@ export function FinanceProvider({
   );
   const submitOrder = useCallback(async (values: OrderSubmitValues) => {
     const s = stateRef.current;
-    const existing = s.editId ? s.orders.find((o) => o.id === s.editId) : undefined;
+    const orderId = values.id ?? s.editId ?? uid();
+    const existing = s.orders.find((o) => o.id === orderId);
     const deliveryCharge = Math.abs(values.deliveryCharge || 0);
     // A payment is only taken here for a new order; an existing one keeps what it has.
     const payment: OrderPayment | null =
       !existing && values.payment && values.payment.amount > 0 ? { id: uid(), ...values.payment } : null;
     const amountPaid = existing ? existing.amountPaid : (payment?.amount ?? 0);
     const draft: Omit<Order, "orderNumber"> = {
-      id: existing?.id ?? uid(),
+      id: orderId,
       customerId: values.customerId,
       orderDate: values.orderDate,
       status: values.status,
       items: values.items,
       deliveryCharge,
+      deliveryLocation: values.deliveryLocation,
       deliveryProviderId: values.deliveryProviderId,
       paymentMethodId: values.paymentMethodId,
       amountPaid,
@@ -1103,6 +1117,7 @@ export function useDashboardData() {
           orderNumber: o.orderNumber,
           dateDisplay: fmtDate(o.orderDate),
           customer: customerName(o.customerId),
+          deliveryLocation: o.deliveryLocation,
           deliveryProvider: o.deliveryProviderId ? (deliveryProviderById.get(o.deliveryProviderId)?.name ?? "Unknown provider") : null,
           paymentMethod: o.paymentMethodId ? (paymentMethodById.get(o.paymentMethodId)?.name ?? "Unknown method") : null,
           itemsSummary: o.items
@@ -1139,13 +1154,13 @@ export function useDashboardData() {
       : null;
     const paymentDialog = payingOrder
       ? {
-          orderNumber: payingOrder.orderNumber,
-          totalDisplay: fmtMoney(payingOrder.totalPrice),
-          paidDisplay: fmtMoney(payingOrder.amountPaid),
-          balance: roundMoney(payingOrder.totalPrice - payingOrder.amountPaid),
-          categoryId: lastPayment?.categoryId ?? defaultPaymentCategoryId,
-          channelId: lastPayment?.channelId ?? "",
-        }
+        orderNumber: payingOrder.orderNumber,
+        totalDisplay: fmtMoney(payingOrder.totalPrice),
+        paidDisplay: fmtMoney(payingOrder.amountPaid),
+        balance: roundMoney(payingOrder.totalPrice - payingOrder.amountPaid),
+        categoryId: lastPayment?.categoryId ?? defaultPaymentCategoryId,
+        channelId: lastPayment?.channelId ?? "",
+      }
       : null;
 
     return {

@@ -2,6 +2,8 @@ import { cx } from "@/lib/cx";
 import { Panel } from "./Panel";
 import { DeleteButton, EditButton } from "./IconButton";
 import { useFinance } from "@/lib/finance-context";
+import { usePagination } from "@/lib/use-pagination";
+import { TablePagination } from "./TablePagination";
 
 interface InvoiceRow {
   id: string;
@@ -19,6 +21,20 @@ const tdClass = "border-b border-line-soft px-4 py-2.5";
 
 export function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
   const { openEditInvoice, deleteInvoice, markInvoicePaid } = useFinance();
+  const {
+    pageRows,
+    totalRows,
+    page,
+    pageSize,
+    totalPages,
+    startIndex,
+    endIndex,
+    canPreviousPage,
+    canNextPage,
+    previousPage,
+    nextPage,
+    setRowsPerPage,
+  } = usePagination(rows);
 
   return (
     <Panel>
@@ -34,7 +50,7 @@ export function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((inv) => (
+          {pageRows.map((inv) => (
             <tr key={inv.id}>
               <td className={tdClass}>{inv.client}</td>
               <td className={cx(tdClass, "text-ink/60")}>{inv.issueDisplay}</td>
@@ -60,6 +76,19 @@ export function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
           ))}
         </tbody>
       </table>
+      <TablePagination
+        totalRows={totalRows}
+        startIndex={startIndex}
+        endIndex={endIndex}
+        page={page}
+        totalPages={totalPages}
+        pageSize={pageSize}
+        canPreviousPage={canPreviousPage}
+        canNextPage={canNextPage}
+        onPreviousPage={previousPage}
+        onNextPage={nextPage}
+        onRowsPerPageChange={setRowsPerPage}
+      />
     </Panel>
   );
 }

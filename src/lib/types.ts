@@ -102,6 +102,7 @@ export interface Order {
   items: OrderItem[];
   subTotal: number;
   deliveryCharge: number;
+  deliveryLocation: string | null;
   deliveryProviderId: string | null;
   paymentMethodId: string | null;
   totalPrice: number;

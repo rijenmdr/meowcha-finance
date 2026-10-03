@@ -94,16 +94,17 @@ export function OrderDialog() {
         subTotal: roundMoney(toNumber(i.subTotal)),
       })),
       deliveryCharge: roundMoney(toNumber(deliveryCharge)),
+      deliveryLocation: String(fd.get("deliveryLocation") || "").trim() || null,
       deliveryProviderId: String(fd.get("deliveryProviderId") || "") || null,
       paymentMethodId: String(fd.get("paymentMethodId") || "") || null,
       payment:
         !editingOrder && paidNow > 0
           ? {
-              date: String(fd.get("orderDate") || ""),
-              amount: paidNow,
-              categoryId: String(fd.get("paymentCategoryId") || ""),
-              channelId: String(fd.get("paymentChannelId") || "") || null,
-            }
+            date: String(fd.get("orderDate") || ""),
+            amount: paidNow,
+            categoryId: String(fd.get("paymentCategoryId") || ""),
+            channelId: String(fd.get("paymentChannelId") || "") || null,
+          }
           : null,
     });
   }
@@ -154,6 +155,16 @@ export function OrderDialog() {
 
       <div className="grid grid-cols-2 gap-3">
         <div>
+          <label className={fieldLabelClass}>Delivery location (optional)</label>
+          <input
+            type="text"
+            name="deliveryLocation"
+            defaultValue={editingOrder?.deliveryLocation ?? ""}
+            className={inputClass}
+            placeholder="Street, area, or landmark"
+          />
+        </div>
+        <div>
           <label className={fieldLabelClass}>Delivery provider (optional)</label>
           <select name="deliveryProviderId" defaultValue={editingOrder?.deliveryProviderId ?? ""} className={inputClass}>
             <option value="">No provider</option>
@@ -167,6 +178,9 @@ export function OrderDialog() {
             <div className={fieldHintClass}>No providers yet. Add one on the Delivery providers page.</div>
           )}
         </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
         <div>
           <label className={fieldLabelClass}>Payment method (optional)</label>
           <select name="paymentMethodId" defaultValue={editingOrder?.paymentMethodId ?? ""} className={inputClass}>

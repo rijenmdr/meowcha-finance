@@ -151,6 +151,7 @@ create table if not exists orders (
   -- Kept equal to the sum of order_items.sub_total by save_order().
   sub_total numeric not null default 0 check (sub_total >= 0),
   delivery_charge numeric not null default 0 check (delivery_charge >= 0),
+  delivery_location text,
   -- Both optional: deleting a provider or method unlinks its orders.
   delivery_provider_id text references delivery_providers(id) on delete set null,
   payment_method_id text references payment_methods(id) on delete set null,
@@ -282,6 +283,7 @@ begin
     order_status = p_order->>'order_status',
     sub_total = v_sub_total,
     delivery_charge = (p_order->>'delivery_charge')::numeric,
+    delivery_location = p_order->>'delivery_location',
     delivery_provider_id = p_order->>'delivery_provider_id',
     payment_method_id = p_order->>'payment_method_id'
   where id = v_id
@@ -291,7 +293,7 @@ begin
     -- Payments follow the order's customer.
     update transactions set customer_id = p_order->>'customer_id' where order_id = v_id;
   else
-    insert into orders (id, customer_id, order_date, order_status, sub_total, delivery_charge, delivery_provider_id, payment_method_id)
+    insert into orders (id, customer_id, order_date, order_status, sub_total, delivery_charge, delivery_location, delivery_provider_id, payment_method_id)
     values (
       v_id,
       p_order->>'customer_id',
@@ -299,6 +301,7 @@ begin
       p_order->>'order_status',
       v_sub_total,
       (p_order->>'delivery_charge')::numeric,
+      p_order->>'delivery_location',
       p_order->>'delivery_provider_id',
       p_order->>'payment_method_id'
     )

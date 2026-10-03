@@ -2,6 +2,8 @@ import { cx } from "@/lib/cx";
 import { Panel } from "./Panel";
 import { DeleteButton, EditButton } from "./IconButton";
 import { useFinance } from "@/lib/finance-context";
+import { usePagination } from "@/lib/use-pagination";
+import { TablePagination } from "./TablePagination";
 
 interface TxnRow {
   id: string;
@@ -44,6 +46,20 @@ export function TransactionsTable({
   empty: boolean;
 }) {
   const { setFilterType, setFilterCategory, openEditTxn, deleteTxn } = useFinance();
+  const {
+    pageRows,
+    totalRows,
+    page,
+    pageSize,
+    totalPages,
+    startIndex,
+    endIndex,
+    canPreviousPage,
+    canNextPage,
+    previousPage,
+    nextPage,
+    setRowsPerPage,
+  } = usePagination(rows);
 
   return (
     <div>
@@ -100,7 +116,7 @@ export function TransactionsTable({
             </tr>
           </thead>
           <tbody>
-            {rows.map((t) => (
+            {pageRows.map((t) => (
               <tr key={t.id}>
                 <td className={cx(tdClass, "whitespace-nowrap text-ink/60")}>{t.dateDisplay}</td>
                 <td className={tdClass}>
@@ -121,6 +137,19 @@ export function TransactionsTable({
             ))}
           </tbody>
         </table>
+        <TablePagination
+          totalRows={totalRows}
+          startIndex={startIndex}
+          endIndex={endIndex}
+          page={page}
+          totalPages={totalPages}
+          pageSize={pageSize}
+          canPreviousPage={canPreviousPage}
+          canNextPage={canNextPage}
+          onPreviousPage={previousPage}
+          onNextPage={nextPage}
+          onRowsPerPageChange={setRowsPerPage}
+        />
         {empty && <div className="px-4 py-6 text-13 text-ink/55">No transactions match these filters.</div>}
       </Panel>
     </div>

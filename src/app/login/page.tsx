@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { CornerBrackets } from "@/components/CornerBrackets";
 import { Logo } from "@/components/Logo";
 import { fieldLabelClass, inputClass, saveButtonClass } from "@/components/DialogOverlay";
 import { cx } from "@/lib/cx";
+import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -19,15 +19,22 @@ export default function LoginPage() {
     setError(null);
 
     const fd = new FormData(e.currentTarget);
-    const result = await signIn("credentials", {
-      email: String(fd.get("email") || ""),
-      password: String(fd.get("password") || ""),
-      redirect: false,
-    });
+    const email = String(fd.get("email") || "").trim().toLowerCase();
+    const password = String(fd.get("password") || "");
 
-    if (!result || result.error) {
+    const { data, error } = await getSupabaseBrowserClient().auth.signInWithPassword({ email, password });
+
+    if (error) {
       setPending(false);
       setError("Invalid email or password.");
+      return;
+    }
+
+    const adminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL?.trim().toLowerCase();
+    if (adminEmail && data.user?.email?.toLowerCase() !== adminEmail) {
+      await getSupabaseBrowserClient().auth.signOut();
+      setPending(false);
+      setError("This account is not authorized.");
       return;
     }
 

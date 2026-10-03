@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { signOut, useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 
-export function TopNav() {
-  const { data: session } = useSession();
-  const email = session?.user?.email ?? "";
+export function TopNav({ userEmail }: { userEmail: string }) {
+  const router = useRouter();
+  const email = userEmail;
   const initial = email ? email[0]!.toUpperCase() : "?";
 
   const [open, setOpen] = useState(false);
@@ -29,8 +30,10 @@ export function TopNav() {
     };
   }, [open]);
 
-  function handleSignOut() {
-    signOut({ callbackUrl: "/login" });
+  async function handleSignOut() {
+    await getSupabaseBrowserClient().auth.signOut();
+    router.push("/login");
+    router.refresh();
   }
 
   return (

@@ -1,7 +1,7 @@
 "use server";
 
-import { auth } from "@/auth";
 import { getSupabase } from "./supabase";
+import { requireSupabaseUser } from "./supabase-auth";
 import type {
   Budget,
   Category,
@@ -33,8 +33,7 @@ import {
 } from "./validate";
 
 async function requireSession() {
-  const session = await auth();
-  if (!session?.user) throw new Error("Unauthorized");
+  await requireSupabaseUser();
 }
 
 export async function saveTransactionAction(input: Transaction): Promise<void> {
@@ -209,6 +208,7 @@ export async function saveOrderAction(input: Omit<Order, "orderNumber">, payment
       order_date: order.orderDate,
       order_status: order.status,
       delivery_charge: order.deliveryCharge,
+      delivery_location: order.deliveryLocation,
       delivery_provider_id: order.deliveryProviderId,
       payment_method_id: order.paymentMethodId,
     },

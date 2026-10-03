@@ -2,6 +2,8 @@ import { cx } from "@/lib/cx";
 import { Panel } from "./Panel";
 import { DeleteButton, EditButton } from "./IconButton";
 import { useFinance } from "@/lib/finance-context";
+import { usePagination } from "@/lib/use-pagination";
+import { TablePagination } from "./TablePagination";
 
 interface CustomerRow {
   id: string;
@@ -20,6 +22,20 @@ const subLineClass = "mt-0.5 text-11 text-ink/60";
 
 export function CustomersTable({ rows, empty }: { rows: CustomerRow[]; empty: boolean }) {
   const { openEditCustomer, deleteCustomer } = useFinance();
+  const {
+    pageRows,
+    totalRows,
+    page,
+    pageSize,
+    totalPages,
+    startIndex,
+    endIndex,
+    canPreviousPage,
+    canNextPage,
+    previousPage,
+    nextPage,
+    setRowsPerPage,
+  } = usePagination(rows);
 
   return (
     <Panel>
@@ -35,7 +51,7 @@ export function CustomersTable({ rows, empty }: { rows: CustomerRow[]; empty: bo
           </tr>
         </thead>
         <tbody>
-          {rows.map((c) => (
+          {pageRows.map((c) => (
             <tr key={c.id}>
               <td className={tdClass}>
                 <div className="font-semibold">{c.name}</div>
@@ -56,6 +72,19 @@ export function CustomersTable({ rows, empty }: { rows: CustomerRow[]; empty: bo
           ))}
         </tbody>
       </table>
+      <TablePagination
+        totalRows={totalRows}
+        startIndex={startIndex}
+        endIndex={endIndex}
+        page={page}
+        totalPages={totalPages}
+        pageSize={pageSize}
+        canPreviousPage={canPreviousPage}
+        canNextPage={canNextPage}
+        onPreviousPage={previousPage}
+        onNextPage={nextPage}
+        onRowsPerPageChange={setRowsPerPage}
+      />
       {empty && <div className="px-4 py-6 text-13 text-ink/55">No customers yet. Add one, then pick them when recording income.</div>}
     </Panel>
   );

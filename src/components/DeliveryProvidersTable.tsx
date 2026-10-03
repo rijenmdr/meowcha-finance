@@ -2,6 +2,8 @@ import { cx } from "@/lib/cx";
 import { Panel } from "./Panel";
 import { DeleteButton, EditButton } from "./IconButton";
 import { useFinance } from "@/lib/finance-context";
+import { usePagination } from "@/lib/use-pagination";
+import { TablePagination } from "./TablePagination";
 
 interface DeliveryProviderRow {
   id: string;
@@ -15,6 +17,20 @@ const tdClass = "border-b border-line-soft px-4 py-2.5";
 
 export function DeliveryProvidersTable({ rows, empty }: { rows: DeliveryProviderRow[]; empty: boolean }) {
   const { openEditDeliveryProvider, deleteDeliveryProvider } = useFinance();
+  const {
+    pageRows,
+    totalRows,
+    page,
+    pageSize,
+    totalPages,
+    startIndex,
+    endIndex,
+    canPreviousPage,
+    canNextPage,
+    previousPage,
+    nextPage,
+    setRowsPerPage,
+  } = usePagination(rows);
 
   return (
     <Panel>
@@ -28,7 +44,7 @@ export function DeliveryProvidersTable({ rows, empty }: { rows: DeliveryProvider
           </tr>
         </thead>
         <tbody>
-          {rows.map((x) => (
+          {pageRows.map((x) => (
             <tr key={x.id}>
               <td className={cx(tdClass, "font-semibold")}>{x.name}</td>
               <td className={cx(tdClass, "whitespace-nowrap text-ink/60")}>{x.usageLabel}</td>
@@ -41,6 +57,19 @@ export function DeliveryProvidersTable({ rows, empty }: { rows: DeliveryProvider
           ))}
         </tbody>
       </table>
+      <TablePagination
+        totalRows={totalRows}
+        startIndex={startIndex}
+        endIndex={endIndex}
+        page={page}
+        totalPages={totalPages}
+        pageSize={pageSize}
+        canPreviousPage={canPreviousPage}
+        canNextPage={canNextPage}
+        onPreviousPage={previousPage}
+        onNextPage={nextPage}
+        onRowsPerPageChange={setRowsPerPage}
+      />
       {empty && <div className="px-4 py-6 text-13 text-ink/55">No delivery providers yet. Add one, then pick it on an order.</div>}
     </Panel>
   );
