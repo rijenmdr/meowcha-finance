@@ -260,6 +260,19 @@ const NEXT_ORDER_STATUS: Record<OrderStatus, { status: OrderStatus; label: strin
   delivered: null,
 };
 
+function getAllDataDateBounds(transactions: Transaction[], invoices: Invoice[], orders: Order[]) {
+  const dates = [
+    ...transactions.map((t) => t.date),
+    ...invoices.map((i) => i.issueDate),
+    ...orders.map((o) => o.orderDate),
+  ];
+  if (dates.length === 0) {
+    return { start: "2026-01-01", end: TODAY };
+  }
+  dates.sort((a, b) => a.localeCompare(b));
+  return { start: dates[0]!, end: dates[dates.length - 1]! };
+}
+
 export const PAYMENT_STATUS_LABELS: Record<PaymentStatus, string> = { paid: "Paid", partially_paid: "Partially paid" };
 
 export const PAYMENT_STATUS_CLASSES: Record<PaymentStatus, string> = {
@@ -299,14 +312,15 @@ export function FinanceProvider({
   initialPaymentMethods,
 }: FinanceProviderProps) {
   const router = useRouter();
+  const allDataBounds = getAllDataDateBounds(initialTransactions, initialInvoices, initialOrders);
 
   // Random rather than a per-session counter: a counter restarts on every page
   // load, so a new record could reuse (and upsert over) an id saved earlier.
   const uid = () => crypto.randomUUID();
 
   const [state, setState] = useState<FinanceState>({
-    dateStart: "2026-01-01",
-    dateEnd: TODAY,
+    dateStart: allDataBounds.start,
+    dateEnd: allDataBounds.end,
     filterType: "all",
     filterCategory: "all",
     dialog: null,
@@ -339,7 +353,14 @@ export function FinanceProvider({
   const presetMonth = useCallback(() => setState((s) => ({ ...s, dateStart: "2026-09-01", dateEnd: TODAY })), []);
   const presetQuarter = useCallback(() => setState((s) => ({ ...s, dateStart: "2026-07-01", dateEnd: TODAY })), []);
   const presetYTD = useCallback(() => setState((s) => ({ ...s, dateStart: "2026-01-01", dateEnd: TODAY })), []);
-  const presetAll = useCallback(() => setState((s) => ({ ...s, dateStart: "2026-01-01", dateEnd: TODAY })), []);
+  const presetAll = useCallback(
+    () =>
+      setState((s) => {
+        const bounds = getAllDataDateBounds(s.transactions, s.invoices, s.orders);
+        return { ...s, dateStart: bounds.start, dateEnd: bounds.end };
+      }),
+    [],
+  );
   // The category list depends on the type, so the selected category may no longer apply.
   const setFilterType = useCallback((v: "all" | TxnType) => setState((s) => ({ ...s, filterType: v, filterCategory: "all" })), []);
   const setFilterCategory = useCallback((v: string) => setState((s) => ({ ...s, filterCategory: v })), []);
@@ -942,7 +963,9 @@ export function useDashboardData() {
       .sort((a, b) => b.date.localeCompare(a.date))
       .map((t) => ({
         id: t.id,
+        date: t.date,
         description: t.description,
+        amount: t.amount,
         ...dateDisplayAmount(t),
         category: categoryName(t.categoryId),
         channel: (t.channelId && channelById.get(t.channelId)?.name) || "—",
@@ -960,9 +983,10 @@ export function useDashboardData() {
       return {
         id: b.id,
         category: categoryName(b.categoryId),
+        target: scaledTarget,
         targetDisplay: fmtMoney(scaledTarget),
-        actualDisplay: fmtMoney(actual),
         actual,
+        actualDisplay: fmtMoney(actual),
         pctWidth: Math.min(100, pct) + "%",
         barClass: over ? "fill-accent-800" : "fill-accent-500",
         over,
@@ -983,8 +1007,11 @@ export function useDashboardData() {
         return {
           id: inv.id,
           client: inv.customerId ? customerName(inv.customerId) : "—",
+          issueDate: inv.issueDate,
           issueDisplay: fmtDate(inv.issueDate),
+          dueDate: inv.dueDate,
           dueDisplay: fmtDate(inv.dueDate),
+          amount: inv.amount,
           amountDisplay: fmtMoney(inv.amount),
           status,
           statusClass: STATUS_CLASSES[status],
@@ -1007,7 +1034,9 @@ export function useDashboardData() {
         contact: [c.email, c.phone].filter(Boolean).join(" · ") || "—",
         inRangeIncome,
         inRangeDisplay: fmtMoney(inRangeIncome),
+        lifetimeIncome,
         lifetimeDisplay: fmtMoney(lifetimeIncome),
+        lastDate,
         paymentsLabel: linked.length + " payment" + (linked.length === 1 ? "" : "s"),
         lastDisplay: lastDate ? fmtDate(lastDate) : "—",
       };
@@ -1031,6 +1060,7 @@ export function useDashboardData() {
           return {
             id: c.id,
             name: c.name,
+            usageCount: count,
             usageLabel: count + " transaction" + (count === 1 ? "" : "s"),
             budgeted,
           };
@@ -1043,7 +1073,7 @@ export function useDashboardData() {
         .filter((c) => c.type === type)
         .map((c) => {
           const count = s.transactions.filter((t) => t.channelId === c.id).length;
-          return { id: c.id, name: c.name, usageLabel: count + " transaction" + (count === 1 ? "" : "s") };
+          return { id: c.id, name: c.name, usageCount: count, usageLabel: count + " transaction" + (count === 1 ? "" : "s") };
         });
     const editingChannel = s.editId && s.dialog === "channel" ? s.channels.find((c) => c.id === s.editId) : null;
 
@@ -1053,6 +1083,7 @@ export function useDashboardData() {
       return {
         id: x.id,
         name: x.name,
+        usageCount: linked.length,
         usageLabel: linked.length + " expense" + (linked.length === 1 ? "" : "s"),
         inRangeSpend,
         inRangeDisplay: fmtMoney(inRangeSpend),
@@ -1069,9 +1100,12 @@ export function useDashboardData() {
       color: p.color,
       typeLabel: PAPER_TYPE_LABELS[p.type],
       typeClass: p.type === "lined" ? "bg-accent-50 text-accent-700" : "bg-mist text-graphite",
+      quantity: p.quantity,
       quantityDisplay: String(p.quantity),
       quantityClass: p.quantity === 0 ? "text-error" : "text-ink",
+      price: p.price,
       priceDisplay: fmtMoney(p.price),
+      stockValue: p.quantity * p.price,
       stockValueDisplay: fmtMoney(p.quantity * p.price),
     }));
     const totalUnits = s.products.reduce((a, p) => a + p.quantity, 0);
@@ -1088,7 +1122,7 @@ export function useDashboardData() {
     const deliveryProviderRows = s.deliveryProviders.map((x) => {
       const linked = s.orders.filter((o) => o.deliveryProviderId === x.id);
       const inRangeCharges = linked.filter((o) => inRange(o.orderDate, s.dateStart, s.dateEnd)).reduce((a, o) => a + o.deliveryCharge, 0);
-      return { id: x.id, name: x.name, usageLabel: orderCountLabel(linked.length), inRangeCharges, inRangeDisplay: fmtMoney(inRangeCharges) };
+      return { id: x.id, name: x.name, usageCount: linked.length, usageLabel: orderCountLabel(linked.length), inRangeCharges, inRangeDisplay: fmtMoney(inRangeCharges) };
     });
     const providerDeliveryCharges = deliveryProviderRows.reduce((a, r) => a + r.inRangeCharges, 0);
     const ordersWithoutProvider = ordersInRange.filter((o) => !o.deliveryProviderId).length;
@@ -1098,7 +1132,7 @@ export function useDashboardData() {
     const paymentMethodRows = s.paymentMethods.map((x) => {
       const linked = s.orders.filter((o) => o.paymentMethodId === x.id);
       const inRangeValue = linked.filter((o) => inRange(o.orderDate, s.dateStart, s.dateEnd)).reduce((a, o) => a + o.totalPrice, 0);
-      return { id: x.id, name: x.name, usageLabel: orderCountLabel(linked.length), inRangeValue, inRangeDisplay: fmtMoney(inRangeValue) };
+      return { id: x.id, name: x.name, usageCount: linked.length, usageLabel: orderCountLabel(linked.length), inRangeValue, inRangeDisplay: fmtMoney(inRangeValue) };
     });
     const methodOrderValue = paymentMethodRows.reduce((a, r) => a + r.inRangeValue, 0);
     const ordersWithoutMethod = ordersInRange.filter((o) => !o.paymentMethodId).length;
@@ -1115,6 +1149,7 @@ export function useDashboardData() {
         return {
           id: o.id,
           orderNumber: o.orderNumber,
+          orderDate: o.orderDate,
           dateDisplay: fmtDate(o.orderDate),
           customer: customerName(o.customerId),
           deliveryLocation: o.deliveryLocation,
@@ -1127,9 +1162,13 @@ export function useDashboardData() {
             })
             .join(", "),
           unitsLabel: units + " unit" + (units === 1 ? "" : "s"),
+          totalPrice: o.totalPrice,
           totalDisplay: fmtMoney(o.totalPrice),
+          deliveryCharge: o.deliveryCharge,
           deliveryDisplay: o.deliveryCharge > 0 ? "incl. " + fmtMoney(o.deliveryCharge) + " delivery" : null,
+          amountPaid: o.amountPaid,
           paidDisplay: fmtMoney(o.amountPaid),
+          dueAmount: o.totalPrice - o.amountPaid,
           dueDisplay: o.paymentStatus === "paid" ? null : fmtMoney(o.totalPrice - o.amountPaid) + " due",
           status: ORDER_STATUS_LABELS[o.status],
           statusClass: ORDER_STATUS_CLASSES[o.status],

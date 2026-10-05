@@ -1,37 +1,26 @@
 import { useId } from "react";
+import type { Table } from "@tanstack/react-table";
 
-interface TablePaginationProps {
-    totalRows: number;
-    startIndex: number;
-    endIndex: number;
-    page: number;
-    totalPages: number;
-    pageSize: number;
-    canPreviousPage: boolean;
-    canNextPage: boolean;
-    onPreviousPage: () => void;
-    onNextPage: () => void;
-    onRowsPerPageChange: (nextPageSize: number) => void;
+interface TablePaginationProps<TData> {
+    table: Table<TData>;
 }
 
 const buttonClass =
     "min-w-14 cursor-pointer border border-line px-2 py-1 text-11 text-ink transition-colors hover:border-accent-400 hover:text-accent-700 disabled:cursor-not-allowed disabled:opacity-45";
 const selectClass = "min-h-7 border border-line bg-surface px-2 py-1 text-11 text-ink";
 
-export function TablePagination({
-    totalRows,
-    startIndex,
-    endIndex,
-    page,
-    totalPages,
-    pageSize,
-    canPreviousPage,
-    canNextPage,
-    onPreviousPage,
-    onNextPage,
-    onRowsPerPageChange,
-}: TablePaginationProps) {
+export function TablePagination<TData>({ table }: TablePaginationProps<TData>) {
     const selectId = useId();
+
+    const totalRows = table.getRowCount();
+    const pagination = table.getState().pagination;
+    const page = pagination.pageIndex + 1;
+    const pageSize = pagination.pageSize;
+    const totalPages = table.getPageCount();
+    const startIndex = pagination.pageIndex * pageSize;
+    const endIndex = Math.min(startIndex + pageSize, totalRows);
+    const canPreviousPage = table.getCanPreviousPage();
+    const canNextPage = table.getCanNextPage();
 
     if (totalRows === 0) {
         return null;
@@ -47,20 +36,20 @@ export function TablePagination({
                 <select
                     id={selectId}
                     value={pageSize}
-                    onChange={(e) => onRowsPerPageChange(Number(e.target.value))}
+                    onChange={(e) => table.setPageSize(Number(e.target.value))}
                     className={selectClass}
                 >
                     <option value={10}>10</option>
                     <option value={20}>20</option>
                     <option value={50}>50</option>
                 </select>
-                <button type="button" onClick={onPreviousPage} disabled={!canPreviousPage} className={buttonClass}>
+                <button type="button" onClick={() => table.previousPage()} disabled={!canPreviousPage} className={buttonClass}>
                     Prev
                 </button>
                 <div className="min-w-20 text-center text-ink/70">
                     {page} / {totalPages}
                 </div>
-                <button type="button" onClick={onNextPage} disabled={!canNextPage} className={buttonClass}>
+                <button type="button" onClick={() => table.nextPage()} disabled={!canNextPage} className={buttonClass}>
                     Next
                 </button>
             </div>
