@@ -1,5 +1,6 @@
 import { OrderEditorPage } from "@/components/OrderEditorPage";
 
-export default function EditOrderPage({ params }: { params: { id: string } }) {
-    return <OrderEditorPage mode="edit" orderId={params.id} />;
+export default async function EditOrderPage({ params }: { params: Promise<{ id: string }> }) {
+    const { id } = await params;
+    return <OrderEditorPage mode="edit" orderId={id} />;
 }

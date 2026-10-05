@@ -1,37 +1,26 @@
 import { useId } from "react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import type { Table } from "@tanstack/react-table";
 
-interface TablePaginationProps {
-    totalRows: number;
-    startIndex: number;
-    endIndex: number;
-    page: number;
-    totalPages: number;
-    pageSize: number;
-    canPreviousPage: boolean;
-    canNextPage: boolean;
-    onPreviousPage: () => void;
-    onNextPage: () => void;
-    onRowsPerPageChange: (nextPageSize: number) => void;
+interface TablePaginationProps<TData> {
+    table: Table<TData>;
 }
 
 const buttonClass = "min-w-14 rounded-none border-line bg-transparent text-11 text-ink hover:border-accent-400 hover:text-accent-700";
 
-export function TablePagination({
-    totalRows,
-    startIndex,
-    endIndex,
-    page,
-    totalPages,
-    pageSize,
-    canPreviousPage,
-    canNextPage,
-    onPreviousPage,
-    onNextPage,
-    onRowsPerPageChange,
-}: TablePaginationProps) {
+export function TablePagination<TData>({ table }: TablePaginationProps<TData>) {
     const selectId = useId();
+
+    const totalRows = table.getRowCount();
+    const pagination = table.getState().pagination;
+    const page = pagination.pageIndex + 1;
+    const pageSize = pagination.pageSize;
+    const totalPages = table.getPageCount();
+    const startIndex = pagination.pageIndex * pageSize;
+    const endIndex = Math.min(startIndex + pageSize, totalRows);
+    const canPreviousPage = table.getCanPreviousPage();
+    const canNextPage = table.getCanNextPage();
 
     if (totalRows === 0) {
         return null;
@@ -44,7 +33,7 @@ export function TablePagination({
             </div>
             <div className="ml-auto flex items-center gap-2">
                 <label htmlFor={selectId}>Rows</label>
-                <Select value={String(pageSize)} onValueChange={(value) => onRowsPerPageChange(Number(value))}>
+                <Select value={String(pageSize)} onValueChange={(value: string | null) => table.setPageSize(Number(value))}>
                     <SelectTrigger id={selectId} size="sm" className="w-18 rounded-none border-line bg-surface text-11 text-ink">
                         <SelectValue />
                     </SelectTrigger>
@@ -56,16 +45,16 @@ export function TablePagination({
                         </SelectGroup>
                     </SelectContent>
                 </Select>
-                <Button type="button" variant="outline" size="sm" onClick={onPreviousPage} disabled={!canPreviousPage} className={buttonClass}>
+                <Button type="button" variant="outline" size="sm" onClick={() => table.previousPage()} disabled={!canPreviousPage} className={buttonClass}>
                     Prev
                 </Button>
                 <div className="min-w-20 text-center text-ink/70">
                     {page} / {totalPages}
                 </div>
-                <Button type="button" variant="outline" size="sm" onClick={onNextPage} disabled={!canNextPage} className={buttonClass}>
+                <Button type="button" variant="outline" size="sm" onClick={() => table.nextPage()} disabled={!canNextPage} className={buttonClass}>
                     Next
                 </Button>
-            </div>
-        </div>
+            </div >
+        </div >
     );
 }

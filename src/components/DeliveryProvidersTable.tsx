@@ -1,14 +1,19 @@
+import { flexRender, type ColumnDef } from "@tanstack/react-table";
+import { useMemo } from "react";
 import { cx } from "@/lib/cx";
 import { Panel } from "./Panel";
 import { DeleteButton, EditButton } from "./IconButton";
 import { useFinance } from "@/lib/finance-context";
-import { usePagination } from "@/lib/use-pagination";
+import { useDataTable } from "@/lib/use-data-table";
+import { SortableHeader } from "./SortableHeader";
 import { TablePagination } from "./TablePagination";
 
 interface DeliveryProviderRow {
   id: string;
   name: string;
+  usageCount: number;
   usageLabel: string;
+  inRangeCharges: number;
   inRangeDisplay: string;
 }
 
@@ -17,59 +22,72 @@ const tdClass = "border-b border-line-soft px-4 py-2.5";
 
 export function DeliveryProvidersTable({ rows, empty }: { rows: DeliveryProviderRow[]; empty: boolean }) {
   const { openEditDeliveryProvider, deleteDeliveryProvider } = useFinance();
-  const {
-    pageRows,
-    totalRows,
-    page,
-    pageSize,
-    totalPages,
-    startIndex,
-    endIndex,
-    canPreviousPage,
-    canNextPage,
-    previousPage,
-    nextPage,
-    setRowsPerPage,
-  } = usePagination(rows);
+  const columns = useMemo<ColumnDef<DeliveryProviderRow>[]>(
+    () => [
+      {
+        accessorKey: "name",
+        header: ({ header }) => <SortableHeader header={header} title="Provider" />,
+        cell: ({ row }) => <span className="font-semibold">{row.original.name}</span>,
+      },
+      {
+        accessorKey: "usageCount",
+        header: ({ header }) => <SortableHeader header={header} title="Usage" />,
+        cell: ({ row }) => <span className="whitespace-nowrap text-ink/60">{row.original.usageLabel}</span>,
+      },
+      {
+        accessorKey: "inRangeCharges",
+        header: ({ header }) => <SortableHeader header={header} title="Delivery charges in range" align="right" />,
+        cell: ({ row }) => <span className="text-right font-semibold whitespace-nowrap">{row.original.inRangeDisplay}</span>,
+      },
+      {
+        id: "actions",
+        enableSorting: false,
+        header: () => null,
+        cell: ({ row }) => (
+          <div className="text-right whitespace-nowrap">
+            <EditButton onClick={() => openEditDeliveryProvider(row.original.id)} />
+            <DeleteButton onClick={() => deleteDeliveryProvider(row.original.id)} />
+          </div>
+        ),
+      },
+    ],
+    [deleteDeliveryProvider, openEditDeliveryProvider],
+  );
+  const table = useDataTable({ data: rows, columns, initialSorting: [{ id: "name", desc: false }] });
 
   return (
     <Panel>
       <table className="w-full text-13">
         <thead>
-          <tr>
-            <th className={cx(thClass, "text-left")}>Provider</th>
-            <th className={cx(thClass, "text-left")}>Usage</th>
-            <th className={cx(thClass, "text-right")}>Delivery charges in range</th>
-            <th className={cx(thClass, "text-right")}></th>
-          </tr>
+          {table.getHeaderGroups().map((headerGroup) => (
+            <tr key={headerGroup.id}>
+              {headerGroup.headers.map((header) => {
+                const headerClass = header.column.id === "inRangeCharges" || header.column.id === "actions" ? "text-right" : "text-left";
+                return (
+                  <th key={header.id} className={cx(thClass, headerClass)}>
+                    {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                  </th>
+                );
+              })}
+            </tr>
+          ))}
         </thead>
         <tbody>
-          {pageRows.map((x) => (
-            <tr key={x.id}>
-              <td className={cx(tdClass, "font-semibold")}>{x.name}</td>
-              <td className={cx(tdClass, "whitespace-nowrap text-ink/60")}>{x.usageLabel}</td>
-              <td className={cx(tdClass, "text-right font-semibold whitespace-nowrap")}>{x.inRangeDisplay}</td>
-              <td className={cx(tdClass, "text-right whitespace-nowrap")}>
-                <EditButton onClick={() => openEditDeliveryProvider(x.id)} />
-                <DeleteButton onClick={() => deleteDeliveryProvider(x.id)} />
-              </td>
+          {table.getRowModel().rows.map((row) => (
+            <tr key={row.id}>
+              {row.getVisibleCells().map((cell) => {
+                const cellClass = cell.column.id === "inRangeCharges" || cell.column.id === "actions" ? "text-right" : "";
+                return (
+                  <td key={cell.id} className={cx(tdClass, cellClass)}>
+                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  </td>
+                );
+              })}
             </tr>
           ))}
         </tbody>
       </table>
-      <TablePagination
-        totalRows={totalRows}
-        startIndex={startIndex}
-        endIndex={endIndex}
-        page={page}
-        totalPages={totalPages}
-        pageSize={pageSize}
-        canPreviousPage={canPreviousPage}
-        canNextPage={canNextPage}
-        onPreviousPage={previousPage}
-        onNextPage={nextPage}
-        onRowsPerPageChange={setRowsPerPage}
-      />
+      <TablePagination table={table} />
       {empty && <div className="px-4 py-6 text-13 text-ink/55">No delivery providers yet. Add one, then pick it on an order.</div>}
     </Panel>
   );
