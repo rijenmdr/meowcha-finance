@@ -1,6 +1,6 @@
 import { ACCENT_RAMP } from "./mock-data";
 import { fmtMoney, monthKey, monthLabel, orderPaymentDescription } from "./format";
-import type { Order, OrderItem, OrderPayment, PaymentStatus, Transaction } from "./types";
+import type { DeliveryProvider, Order, OrderItem, OrderPayment, PaymentStatus, Transaction } from "./types";
 
 export interface DeltaBits {
   label: string;
@@ -180,6 +180,45 @@ export function syncOrderPayments(orders: Order[], transactions: Transaction[]):
   return orders.map((o) => {
     const amountPaid = roundMoney(paid.get(o.id) ?? 0);
     return amountPaid === o.amountPaid ? o : { ...o, amountPaid, ...orderTotals(o.items, o.deliveryCharge, amountPaid) };
+  });
+}
+
+// External delivery charges are collected for the provider, not recognized as income.
+export function adjustOrderPaymentIncome(
+  transactions: Transaction[],
+  orders: Order[],
+  deliveryProviders: DeliveryProvider[],
+): Transaction[] {
+  const providerById = new Map(deliveryProviders.map((provider) => [provider.id, provider.name.trim().toLowerCase()]));
+  const orderById = new Map(orders.map((order) => [order.id, order]));
+  const paymentsByOrder = new Map<string, Transaction[]>();
+  for (const transaction of transactions) {
+    if (transaction.type !== "income" || !transaction.orderId) continue;
+    const payments = paymentsByOrder.get(transaction.orderId) ?? [];
+    payments.push(transaction);
+    paymentsByOrder.set(transaction.orderId, payments);
+  }
+
+  const adjustedAmounts = new Map<string, number>();
+  for (const [orderId, payments] of paymentsByOrder) {
+    const order = orderById.get(orderId);
+    const providerName = order?.deliveryProviderId ? providerById.get(order.deliveryProviderId) : null;
+    if (!order || providerName === "self delivery" || order.deliveryCharge <= 0) continue;
+
+    let chargeToExclude = order.deliveryCharge;
+    payments.sort((left, right) => left.date.localeCompare(right.date) || left.id.localeCompare(right.id));
+    for (const payment of payments) {
+      const excluded = Math.min(payment.amount, chargeToExclude);
+      if (excluded <= 0) continue;
+      adjustedAmounts.set(payment.id, roundMoney(payment.amount - excluded));
+      chargeToExclude = roundMoney(chargeToExclude - excluded);
+      if (chargeToExclude === 0) break;
+    }
+  }
+
+  return transactions.map((transaction) => {
+    const amount = adjustedAmounts.get(transaction.id);
+    return amount === undefined ? transaction : { ...transaction, amount };
   });
 }
 

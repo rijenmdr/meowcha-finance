@@ -8,6 +8,7 @@ import {
   buildCategoryBreakdown,
   buildChartData,
   buildMonthAgg,
+  adjustOrderPaymentIncome,
   deltaBits,
   orderPaymentTransaction,
   orderTotals,
@@ -913,15 +914,17 @@ export function useDashboardData() {
   const s = state;
 
   return useMemo(() => {
+    const reportTransactions = adjustOrderPaymentIncome(s.transactions, s.orders, s.deliveryProviders);
     const filtered = s.transactions.filter((t) => inRange(t.date, s.dateStart, s.dateEnd));
-    const totalIncome = filtered.filter((t) => t.type === "income").reduce((a, t) => a + t.amount, 0);
+    const reportFiltered = reportTransactions.filter((t) => inRange(t.date, s.dateStart, s.dateEnd));
+    const totalIncome = reportFiltered.filter((t) => t.type === "income").reduce((a, t) => a + t.amount, 0);
     const totalExpense = filtered.filter((t) => t.type === "expense").reduce((a, t) => a + t.amount, 0);
     const netIncome = totalIncome - totalExpense;
 
     const rangeDays = daysBetween(s.dateStart, s.dateEnd) + 1;
     const prevEnd = addDays(s.dateStart, -1);
     const prevStart = addDays(prevEnd, -(rangeDays - 1));
-    const prevTx = s.transactions.filter((t) => inRange(t.date, prevStart, prevEnd));
+    const prevTx = reportTransactions.filter((t) => inRange(t.date, prevStart, prevEnd));
     const prevIncome = prevTx.filter((t) => t.type === "income").reduce((a, t) => a + t.amount, 0);
     const prevExpense = prevTx.filter((t) => t.type === "expense").reduce((a, t) => a + t.amount, 0);
     const prevNet = prevIncome - prevExpense;
@@ -937,7 +940,7 @@ export function useDashboardData() {
     const categoryName = (id: string) => categoryById.get(id)?.name ?? "Unknown category";
     const customerName = (id: string) => customerById.get(id)?.name ?? "Unknown customer";
 
-    const monthAgg = buildMonthAgg(filtered, s.dateStart, s.dateEnd);
+    const monthAgg = buildMonthAgg(reportFiltered, s.dateStart, s.dateEnd);
     const chart = buildChartData(monthAgg);
     const categoryBreakdown = buildCategoryBreakdown(filtered, totalExpense, categoryName);
 
@@ -1023,7 +1026,7 @@ export function useDashboardData() {
     const paidTotal = invFiltered.filter((i) => i.paid).reduce((a, i) => a + i.amount, 0);
 
     const customerRows = s.customers.map((c) => {
-      const linked = s.transactions.filter((t) => t.type === "income" && t.customerId === c.id);
+      const linked = reportTransactions.filter((t) => t.type === "income" && t.customerId === c.id);
       const inRangeIncome = linked.filter((t) => inRange(t.date, s.dateStart, s.dateEnd)).reduce((a, t) => a + t.amount, 0);
       const lifetimeIncome = linked.reduce((a, t) => a + t.amount, 0);
       const lastDate = linked.reduce((m, t) => (t.date > m ? t.date : m), "");
