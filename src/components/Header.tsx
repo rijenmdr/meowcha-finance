@@ -13,7 +13,7 @@ const PAGE_TITLES: Record<string, [string, string]> = {
   "/categories": ["Categories", "Income and expense categories used across the dashboard"],
   "/channels": ["Channels", "Where income comes from and who expenses are paid to"],
   "/sources": ["Sources", "Where the money for each expense comes from"],
-  "/products": ["Products", "Stock and pricing for each color and paper type"],
+  "/products": ["Products", "Stock and pricing for each product variant"],
   "/orders": ["Orders", "Customer orders, delivery progress and payments"],
   "/delivery-providers": ["Delivery providers", "Who carries each order to the customer"],
   "/payment-methods": ["Payment methods", "How customers pay for their orders"],
@@ -31,29 +31,33 @@ export function Header() {
   const { state, setDateStart, setDateEnd, presetMonth, presetQuarter, presetYTD, presetAll, openAddTxn, openAddBudget, openAddInvoice, openAddCustomer, openAddCategory, openAddChannel, openAddSource, openAddProduct, openAddOrder, openAddDeliveryProvider, openAddPaymentMethod } =
     useFinance();
 
-  const [title, subtitle] = PAGE_TITLES[pathname] ?? PAGE_TITLES["/overview"];
+  const section = "/" + pathname.split("/")[1];
+  const [title, subtitle] = PAGE_TITLES[section] ?? PAGE_TITLES["/overview"];
   const [addLabel, onAddClick]: [string, () => void] =
-    pathname === "/budget"
+    section === "/budget"
       ? ["Add budget", openAddBudget]
-      : pathname === "/invoices"
+      : section === "/invoices"
         ? ["New invoice", openAddInvoice]
-        : pathname === "/customers"
+        : section === "/customers"
           ? ["Add customer", openAddCustomer]
-          : pathname === "/categories"
+          : section === "/categories"
             ? ["Add category", () => openAddCategory()]
-            : pathname === "/channels"
+            : section === "/channels"
               ? ["Add channel", () => openAddChannel()]
-              : pathname === "/sources"
+              : section === "/sources"
                 ? ["Add source", openAddSource]
-              : pathname === "/products"
+              : section === "/products"
                 ? ["Add product", openAddProduct]
-              : pathname === "/orders"
+              : section === "/orders"
                 ? ["New order", openAddOrder]
-              : pathname === "/delivery-providers"
+              : section === "/delivery-providers"
                 ? ["Add provider", openAddDeliveryProvider]
-              : pathname === "/payment-methods"
+              : section === "/payment-methods"
                 ? ["Add method", openAddPaymentMethod]
               : ["Add transaction", openAddTxn];
+
+  // The product and order form pages have their own title and buttons.
+  if (pathname.startsWith("/products/") || pathname.startsWith("/orders/")) return null;
 
   return (
     <div className="mb-6 flex flex-wrap items-end justify-between gap-4">

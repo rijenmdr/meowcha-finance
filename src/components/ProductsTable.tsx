@@ -8,17 +8,21 @@ import { useDataTable } from "@/lib/use-data-table";
 import { SortableHeader } from "./SortableHeader";
 import { TablePagination } from "./TablePagination";
 
+interface VariantRow {
+  id: string;
+  label: string;
+  quantityDisplay: string;
+  quantityClass: string;
+  priceDisplay: string;
+}
+
 interface ProductRow {
   id: string;
   name: string;
-  color: string;
-  typeLabel: string;
-  typeClass: string;
+  variantCount: number;
+  variants: VariantRow[];
   quantity: number;
   quantityDisplay: string;
-  quantityClass: string;
-  price: number;
-  priceDisplay: string;
   stockValue: number;
   stockValueDisplay: string;
 }
@@ -36,24 +40,25 @@ export function ProductsTable({ rows, empty }: { rows: ProductRow[]; empty: bool
         cell: ({ row }) => <span className="font-semibold">{row.original.name}</span>,
       },
       {
-        accessorKey: "color",
-        header: ({ header }) => <SortableHeader header={header} title="Color" />,
-        cell: ({ row }) => row.original.color,
-      },
-      {
-        accessorKey: "typeLabel",
-        header: ({ header }) => <SortableHeader header={header} title="Type" />,
-        cell: ({ row }) => <span className={cx("inline-block px-2 py-0.5 text-11", row.original.typeClass)}>{row.original.typeLabel}</span>,
+        id: "variants",
+        accessorKey: "variantCount",
+        header: ({ header }) => <SortableHeader header={header} title="Variants" />,
+        cell: ({ row }) => (
+          <ul className="flex flex-col gap-1">
+            {row.original.variants.map((v) => (
+              <li key={v.id} className="flex items-center gap-2 text-12">
+                <span className="inline-block bg-mist px-2 py-0.5 text-graphite">{v.label}</span>
+                <span className={v.quantityClass}>{v.quantityDisplay} in stock</span>
+                <span className="text-ink/60">· {v.priceDisplay}</span>
+              </li>
+            ))}
+          </ul>
+        ),
       },
       {
         accessorKey: "quantity",
         header: ({ header }) => <SortableHeader header={header} title="Quantity" align="right" />,
-        cell: ({ row }) => <span className={cx("text-right whitespace-nowrap", row.original.quantityClass)}>{row.original.quantityDisplay}</span>,
-      },
-      {
-        accessorKey: "price",
-        header: ({ header }) => <SortableHeader header={header} title="Price" align="right" />,
-        cell: ({ row }) => <span className="text-right font-semibold whitespace-nowrap">{row.original.priceDisplay}</span>,
+        cell: ({ row }) => <span className="text-right whitespace-nowrap">{row.original.quantityDisplay}</span>,
       },
       {
         accessorKey: "stockValue",
@@ -83,7 +88,7 @@ export function ProductsTable({ rows, empty }: { rows: ProductRow[]; empty: bool
           {table.getHeaderGroups().map((headerGroup) => (
             <tr key={headerGroup.id}>
               {headerGroup.headers.map((header) => {
-                const headerClass = ["quantity", "price", "stockValue", "actions"].includes(header.column.id) ? "text-right" : "text-left";
+                const headerClass = ["quantity", "stockValue", "actions"].includes(header.column.id) ? "text-right" : "text-left";
                 return (
                   <th key={header.id} className={cx(thClass, headerClass)}>
                     {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
@@ -97,7 +102,7 @@ export function ProductsTable({ rows, empty }: { rows: ProductRow[]; empty: bool
           {table.getRowModel().rows.map((row) => (
             <tr key={row.id}>
               {row.getVisibleCells().map((cell) => {
-                const cellClass = ["quantity", "price", "stockValue", "actions"].includes(cell.column.id) ? "text-right" : "";
+                const cellClass = ["quantity", "stockValue", "actions"].includes(cell.column.id) ? "text-right" : "";
                 return (
                   <td key={cell.id} className={cx(tdClass, cellClass)}>
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -111,7 +116,7 @@ export function ProductsTable({ rows, empty }: { rows: ProductRow[]; empty: bool
       <TablePagination table={table} />
       {empty && (
         <div className="px-4 py-6 text-13 text-ink/55">
-          No products yet. Add one row per color and paper type, each with its own price.
+          No products yet. Add a product, then a variant for each color, size or type, each with its own price.
         </div>
       )}
     </Panel>

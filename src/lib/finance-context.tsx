@@ -12,6 +12,7 @@ import {
   deltaBits,
   orderPaymentTransaction,
   orderTotals,
+  stockAfterOrderChange,
   roundMoney,
   syncOrderPayments,
 } from "./calculations";
@@ -52,10 +53,10 @@ import type {
   OrderItem,
   OrderPayment,
   OrderStatus,
-  PaperType,
   PaymentMethod,
   PaymentStatus,
   Product,
+  ProductVariant,
   Source,
   Transaction,
   TxnType,
@@ -128,11 +129,10 @@ interface PaymentMethodSubmitValues {
 }
 
 interface ProductSubmitValues {
+  id?: string;
   name: string;
-  color: string;
-  type: PaperType;
-  quantity: number;
-  price: number;
+  optionNames: string[];
+  variants: ProductVariant[];
 }
 
 interface CustomerSubmitValues {
@@ -220,7 +220,7 @@ interface FinanceContextValue {
   openAddProduct: () => void;
   openEditProduct: (id: string) => void;
   deleteProduct: (id: string) => void;
-  submitProduct: (values: ProductSubmitValues) => Promise<void>;
+  submitProduct: (values: ProductSubmitValues) => Promise<string | null>;
 
   openAddOrder: () => void;
   openEditOrder: (id: string) => void;
@@ -228,7 +228,7 @@ interface FinanceContextValue {
   advanceOrderStatus: (id: string) => void;
   openRecordPayment: (orderId: string) => void;
   submitPayment: (values: PaymentSubmitValues) => Promise<void>;
-  submitOrder: (values: OrderSubmitValues) => Promise<void>;
+  submitOrder: (values: OrderSubmitValues) => Promise<string | null>;
 }
 
 const STATUS_CLASSES = {
@@ -237,7 +237,6 @@ const STATUS_CLASSES = {
   Outstanding: "border border-ink/30 text-muted",
 } as const;
 
-export const PAPER_TYPE_LABELS: Record<PaperType, string> = { lined: "Lined", blank: "Blank" };
 
 export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   processing: "Processing",
@@ -698,51 +697,64 @@ export function FinanceProvider({
     });
   }, []);
 
-  const openAddProduct = useCallback(() => setState((s) => ({ ...s, dialog: "product", editId: null })), []);
-  const openEditProduct = useCallback((id: string) => setState((s) => ({ ...s, dialog: "product", editId: id })), []);
+  const openAddProduct = useCallback(() => {
+    router.push("/products/new");
+  }, [router]);
+  const openEditProduct = useCallback(
+    (id: string) => {
+      router.push(`/products/${id}`);
+    },
+    [router],
+  );
   const deleteProduct = useCallback((id: string) => {
     const s = stateRef.current;
     const p = s.products.find((x) => x.id === id);
     if (!p) return;
-    // order_items.product_id has no on-delete action, so the DB would reject this.
-    const orderCount = s.orders.filter((o) => o.items.some((i) => i.productId === id)).length;
+    // order_items.variant_id has no on-delete action, so the DB would reject this.
+    const variantIds = new Set(p.variants.map((v) => v.id));
+    const orderCount = s.orders.filter((o) => o.items.some((i) => variantIds.has(i.variantId))).length;
     if (orderCount > 0) {
-      window.alert(`"${p.name}" (${p.color}, ${p.type}) is on ${orderCount} order${orderCount === 1 ? "" : "s"}. Remove it from those first.`);
+      window.alert(`"${p.name}" is on ${orderCount} order${orderCount === 1 ? "" : "s"}. Remove it from those first.`);
       return;
     }
-    if (!window.confirm(`Delete "${p.name}" (${p.color}, ${p.type})?`)) return;
+    if (!window.confirm(`Delete "${p.name}" and its ${p.variants.length} variant${p.variants.length === 1 ? "" : "s"}?`)) return;
     setState((s) => ({ ...s, products: s.products.filter((x) => x.id !== id) }));
     deleteProductAction(id).catch((err) => console.error("Failed to delete product", err));
   }, []);
-  const submitProduct = useCallback(async (values: ProductSubmitValues) => {
+  // Resolves to a message when the product can't be saved; throws if the server save fails.
+  const submitProduct = useCallback(async (values: ProductSubmitValues): Promise<string | null> => {
     const s = stateRef.current;
     const rec: Product = {
-      id: s.editId || uid(),
+      id: values.id || uid(),
       name: values.name,
-      color: values.color,
-      type: values.type,
-      quantity: Math.max(0, Math.trunc(values.quantity || 0)),
-      price: Math.abs(values.price || 0),
+      optionNames: values.optionNames,
+      variants: values.variants.map((v) => ({
+        id: v.id,
+        options: v.options,
+        quantity: Math.max(0, Math.trunc(v.quantity || 0)),
+        price: Math.abs(v.price || 0),
+      })),
     };
-    // Mirrors the DB's unique (name, color, type), but case-insensitively.
-    const duplicate = s.products.some(
-      (p) =>
-        p.id !== rec.id &&
-        p.type === rec.type &&
-        p.name.toLowerCase() === rec.name.toLowerCase() &&
-        p.color.toLowerCase() === rec.color.toLowerCase(),
-    );
-    if (duplicate) {
-      window.alert(`"${rec.name}" in ${rec.color} (${rec.type}) already exists. Edit that one instead.`);
-      return;
+    // Mirrors the DB's unique product name, case-insensitively.
+    if (s.products.some((p) => p.id !== rec.id && p.name.trim().toLowerCase() === rec.name.toLowerCase())) {
+      return `"${rec.name}" already exists. Add a variant to that product instead.`;
+    }
+    // A removed variant that is on an order would be rejected by the DB.
+    const kept = new Set(rec.variants.map((v) => v.id));
+    const removedInUse = s.products
+      .find((p) => p.id === rec.id)
+      ?.variants.filter((v) => !kept.has(v.id) && s.orders.some((o) => o.items.some((i) => i.variantId === v.id)));
+    if (removedInUse && removedInUse.length > 0) {
+      return `${removedInUse.length === 1 ? "A removed variant is" : "Removed variants are"} on an order. Remove ${removedInUse.length === 1 ? "it" : "them"} from those orders first.`;
     }
     await saveProductAction(rec);
     setState((s) => {
       const exists = s.products.some((p) => p.id === rec.id);
       const products = exists ? s.products.map((p) => (p.id === rec.id ? rec : p)) : [...s.products, rec];
-      products.sort((a, b) => a.name.localeCompare(b.name) || a.color.localeCompare(b.color) || a.type.localeCompare(b.type));
-      return { ...s, products, dialog: null, editId: null };
+      products.sort((a, b) => a.name.localeCompare(b.name));
+      return { ...s, products };
     });
+    return null;
   }, []);
 
   const openAddOrder = useCallback(() => {
@@ -760,10 +772,11 @@ export function FinanceProvider({
     const paymentCount = stateRef.current.transactions.filter((t) => t.orderId === id).length;
     const note = paymentCount > 0 ? ` Its ${paymentCount} payment${paymentCount === 1 ? "" : "s"} stay in Transactions, unlinked.` : "";
     if (!window.confirm(`Delete order ${o.orderNumber}?${note}`)) return;
-    // Mirrors the DB's `on delete set null` on transactions.order_id.
+    // Mirrors the DB's `on delete set null` on transactions.order_id, and the stock restored by the item trigger.
     setState((s) => ({
       ...s,
       orders: s.orders.filter((x) => x.id !== id),
+      products: stockAfterOrderChange(s.products, o, undefined),
       transactions: s.transactions.map((t) => (t.orderId === id ? { ...t, orderId: null } : t)),
     }));
     deleteOrderAction(id).catch((err) => console.error("Failed to delete order", err));
@@ -781,7 +794,8 @@ export function FinanceProvider({
     },
     [saveOrderOptimistic],
   );
-  const submitOrder = useCallback(async (values: OrderSubmitValues) => {
+  // Resolves to a message when the order can't be saved; throws if the server save fails.
+  const submitOrder = useCallback(async (values: OrderSubmitValues): Promise<string | null> => {
     const s = stateRef.current;
     const orderId = values.id ?? s.editId ?? uid();
     const existing = s.orders.find((o) => o.id === orderId);
@@ -790,7 +804,7 @@ export function FinanceProvider({
     const payment: OrderPayment | null =
       !existing && values.payment && values.payment.amount > 0 ? { id: uid(), ...values.payment } : null;
     const amountPaid = existing ? existing.amountPaid : (payment?.amount ?? 0);
-    const draft: Omit<Order, "orderNumber"> = {
+    const draft: Omit<Order, "orderNumber" | "stockTracked"> = {
       id: orderId,
       customerId: values.customerId,
       orderDate: values.orderDate,
@@ -804,11 +818,24 @@ export function FinanceProvider({
       ...orderTotals(values.items, deliveryCharge, amountPaid),
     };
     if (draft.totalPrice < amountPaid) {
-      window.alert(`The total can't be less than the ${fmtMoney(amountPaid)} already paid. Correct the payments in Transactions first.`);
-      return;
+      return `The total can't be less than the ${fmtMoney(amountPaid)} already paid. Correct the payments in Transactions first.`;
+    }
+    const stockTracked = existing ? existing.stockTracked : true;
+    if (stockTracked) {
+      // Stock this order can still draw on: what's on the shelf plus what this order already holds.
+      const held = new Map<string, number>();
+      if (existing?.stockTracked) for (const i of existing.items) held.set(i.variantId, (held.get(i.variantId) ?? 0) + i.quantity);
+      for (const item of values.items) {
+        const found = s.products.flatMap((p) => p.variants.map((v) => ({ p, v }))).find(({ v }) => v.id === item.variantId);
+        if (found && item.quantity > found.v.quantity + (held.get(item.variantId) ?? 0)) {
+          const available = found.v.quantity + (held.get(item.variantId) ?? 0);
+          const label = found.p.optionNames.map((n) => found.v.options[n]).filter(Boolean).join(", ");
+          return `Not enough stock for ${found.p.name}${label ? ` · ${label}` : ""}: ${available} available.`;
+        }
+      }
     }
     // The DB assigns the number on first save and keeps it on later ones.
-    const rec: Order = { ...draft, orderNumber: await saveOrderAction(draft, payment) };
+    const rec: Order = { ...draft, stockTracked, orderNumber: await saveOrderAction(draft, payment) };
     setState((s) => {
       const orders = existing ? s.orders.map((o) => (o.id === rec.id ? rec : o)) : [...s.orders, rec];
       // Mirrors save_order(): a first payment becomes an income transaction, and
@@ -816,8 +843,9 @@ export function FinanceProvider({
       const transactions = payment
         ? [...s.transactions, orderPaymentTransaction(rec, payment)]
         : s.transactions.map((t) => (t.orderId === rec.id ? { ...t, customerId: rec.customerId } : t));
-      return { ...s, orders, transactions, dialog: null, editId: null };
+      return { ...s, orders, transactions, products: stockAfterOrderChange(s.products, existing, rec), dialog: null, editId: null };
     });
+    return null;
   }, []);
 
   const openRecordPayment = useCallback(
@@ -1097,25 +1125,35 @@ export function useDashboardData() {
 
     const editingCustomer = s.editId && s.dialog === "customer" ? s.customers.find((c) => c.id === s.editId) : null;
 
-    const productRows = s.products.map((p) => ({
-      id: p.id,
-      name: p.name,
-      color: p.color,
-      typeLabel: PAPER_TYPE_LABELS[p.type],
-      typeClass: p.type === "lined" ? "bg-accent-50 text-accent-700" : "bg-mist text-graphite",
-      quantity: p.quantity,
-      quantityDisplay: String(p.quantity),
-      quantityClass: p.quantity === 0 ? "text-error" : "text-ink",
-      price: p.price,
-      priceDisplay: fmtMoney(p.price),
-      stockValue: p.quantity * p.price,
-      stockValueDisplay: fmtMoney(p.quantity * p.price),
-    }));
-    const totalUnits = s.products.reduce((a, p) => a + p.quantity, 0);
-    const stockValue = s.products.reduce((a, p) => a + p.quantity * p.price, 0);
-    const outOfStockCount = s.products.filter((p) => p.quantity === 0).length;
+    const variantLabel = (p: Product, v: ProductVariant) => p.optionNames.map((n) => v.options[n]).filter(Boolean).join(", ");
+    const productRows = s.products.map((p) => {
+      const units = p.variants.reduce((a, v) => a + v.quantity, 0);
+      const value = p.variants.reduce((a, v) => a + v.quantity * v.price, 0);
+      return {
+        id: p.id,
+        name: p.name,
+        optionsLabel: p.optionNames.join(", "),
+        variantCount: p.variants.length,
+        variants: p.variants.map((v) => ({
+          id: v.id,
+          label: variantLabel(p, v) || "Default",
+          quantityDisplay: String(v.quantity),
+          quantityClass: v.quantity === 0 ? "text-error" : "text-ink",
+          priceDisplay: fmtMoney(v.price),
+        })),
+        quantity: units,
+        quantityDisplay: String(units),
+        stockValue: value,
+        stockValueDisplay: fmtMoney(value),
+      };
+    });
+    const allVariants = s.products.flatMap((p) => p.variants);
+    const totalUnits = allVariants.reduce((a, v) => a + v.quantity, 0);
+    const stockValue = allVariants.reduce((a, v) => a + v.quantity * v.price, 0);
+    const outOfStockCount = allVariants.filter((v) => v.quantity === 0).length;
     const uniqueSorted = (values: string[]) => [...new Set(values)].sort((a, b) => a.localeCompare(b));
-    const editingProduct = s.editId && s.dialog === "product" ? s.products.find((p) => p.id === s.editId) : null;
+    // Options whose values come from a fixed list (keyed by lower-cased option name).
+    const optionValueOptions: Record<string, string[]> = { type: ["Lined", "Blank"] };
 
     const deliveryProviderById = new Map(s.deliveryProviders.map((x) => [x.id, x]));
     const paymentMethodById = new Map(s.paymentMethods.map((x) => [x.id, x]));
@@ -1141,8 +1179,11 @@ export function useDashboardData() {
     const ordersWithoutMethod = ordersInRange.filter((o) => !o.paymentMethodId).length;
     const editingPaymentMethod = s.editId && s.dialog === "paymentMethod" ? s.paymentMethods.find((x) => x.id === s.editId) : null;
 
-    const productById = new Map(s.products.map((p) => [p.id, p]));
-    const productLabel = (p: Product) => `${p.name} · ${p.color}, ${PAPER_TYPE_LABELS[p.type]}`;
+    const variantById = new Map(s.products.flatMap((p) => p.variants.map((v) => [v.id, { product: p, variant: v }] as const)));
+    const variantFullLabel = (p: Product, v: ProductVariant) => {
+      const label = variantLabel(p, v);
+      return label ? `${p.name} · ${label}` : p.name;
+    };
     const orderRows = ordersInRange
       .slice()
       .sort((a, b) => b.orderDate.localeCompare(a.orderDate) || b.orderNumber.localeCompare(a.orderNumber))
@@ -1160,8 +1201,8 @@ export function useDashboardData() {
           paymentMethod: o.paymentMethodId ? (paymentMethodById.get(o.paymentMethodId)?.name ?? "Unknown method") : null,
           itemsSummary: o.items
             .map((i) => {
-              const p = productById.get(i.productId);
-              return `${i.quantity} × ${p ? productLabel(p) : "Unknown product"}`;
+              const found = variantById.get(i.variantId);
+              return `${i.quantity} × ${found ? variantFullLabel(found.product, found.variant) : "Unknown product"}`;
             })
             .join(", "),
           unitsLabel: units + " unit" + (units === 1 ? "" : "s"),
@@ -1288,9 +1329,8 @@ export function useDashboardData() {
       unitsInStockDisplay: String(totalUnits),
       stockValueDisplay: fmtMoney(stockValue),
       outOfStockDisplay: String(outOfStockCount),
-      productNameOptions: uniqueSorted(s.products.map((p) => p.name)),
-      productColorOptions: uniqueSorted(s.products.map((p) => p.color)),
-      editingProduct,
+      productOptionNameOptions: uniqueSorted(s.products.flatMap((p) => p.optionNames)),
+      productOptionValueOptions: optionValueOptions,
 
       orderRows,
       ordersEmpty: orderRows.length === 0,
@@ -1298,7 +1338,9 @@ export function useDashboardData() {
       orderRevenueDisplay: fmtMoney(orderRevenue),
       orderBalanceDueDisplay: fmtMoney(orderBalanceDue),
       openOrderCountDisplay: String(openOrderCount),
-      orderProductOptions: s.products.map((p) => ({ id: p.id, label: productLabel(p), price: p.price })),
+      orderProductOptions: s.products.flatMap((p) =>
+        p.variants.map((v) => ({ id: v.id, label: variantFullLabel(p, v), price: v.price })),
+      ),
       editingOrder,
       defaultPaymentCategoryId,
       incomeChannelOptions: channelOptions("income"),

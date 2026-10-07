@@ -109,19 +109,27 @@ export async function getInvoices(): Promise<Invoice[]> {
 export async function getProducts(): Promise<Product[]> {
   const { data, error } = await getSupabase()
     .from("products")
-    .select("id, name, color, type, quantity, price")
-    .order("name", { ascending: true })
-    .order("color", { ascending: true })
-    .order("type", { ascending: true });
+    .select("id, name, option_names, product_variants (id, options, quantity, price)")
+    .order("name", { ascending: true });
   if (error) throw new Error(error.message);
-  return data ?? [];
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    name: row.name,
+    optionNames: row.option_names,
+    variants: (row.product_variants ?? []).map((v: { id: string; options: Record<string, string>; quantity: number; price: number }) => ({
+      id: v.id,
+      options: v.options,
+      quantity: v.quantity,
+      price: v.price,
+    })),
+  }));
 }
 
 export async function getOrders(): Promise<Order[]> {
   const { data, error } = await getSupabase()
     .from("orders")
     .select(
-      "id, order_number, customer_id, order_date, order_status, sub_total, delivery_charge, delivery_location, delivery_provider_id, payment_method_id, total_price, amount_paid, payment_status, order_items (id, product_id, quantity, sub_total)",
+      "id, order_number, customer_id, order_date, order_status, sub_total, delivery_charge, delivery_location, delivery_provider_id, payment_method_id, total_price, amount_paid, payment_status, order_items (id, variant_id, quantity, sub_total, stock_tracked)",
     )
     .order("order_date", { ascending: true })
     .order("order_number", { ascending: true });
@@ -132,13 +140,14 @@ export async function getOrders(): Promise<Order[]> {
     customerId: row.customer_id,
     orderDate: row.order_date,
     status: row.order_status,
-    items: (row.order_items ?? []).map((item: { id: string; product_id: string; quantity: number; sub_total: number }) => ({
+    items: (row.order_items ?? []).map((item: { id: string; variant_id: string; quantity: number; sub_total: number }) => ({
       id: item.id,
-      productId: item.product_id,
+      variantId: item.variant_id,
       quantity: item.quantity,
       subTotal: item.sub_total,
     })),
     subTotal: row.sub_total,
+    stockTracked: (row.order_items ?? []).every((item: { stock_tracked: boolean }) => item.stock_tracked),
     deliveryCharge: row.delivery_charge,
     deliveryLocation: row.delivery_location,
     deliveryProviderId: row.delivery_provider_id,

@@ -75,7 +75,7 @@ export const fieldHintClass = "mt-1 text-11 text-ink/60";
 
 export const dialogTitleClass = "font-condensed text-20 font-semibold";
 
-const cancelButtonClass =
+export const cancelButtonClass =
   "cursor-pointer border border-line bg-transparent px-4 py-2 font-condensed text-14 font-semibold disabled:cursor-default disabled:opacity-70";
 
 export const saveButtonClass =

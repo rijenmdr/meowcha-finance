@@ -13,7 +13,7 @@ export default function ProductsPage() {
         <StatCard label="Products" value={data.productCountDisplay} />
         <StatCard label="Units in stock" value={data.unitsInStockDisplay} />
         <StatCard label="Stock value" value={data.stockValueDisplay} tinted />
-        <StatCard label="Out of stock" value={data.outOfStockDisplay} />
+        <StatCard label="Variants out of stock" value={data.outOfStockDisplay} />
       </div>
       <ProductsTable rows={data.productRows} empty={data.productsEmpty} />
     </div>

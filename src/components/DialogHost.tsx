@@ -8,7 +8,6 @@ import { CustomerDialog } from "./CustomerDialog";
 import { CategoryDialog } from "./CategoryDialog";
 import { ChannelDialog } from "./ChannelDialog";
 import { SourceDialog } from "./SourceDialog";
-import { ProductDialog } from "./ProductDialog";
 import { OrderDialog } from "./OrderDialog";
 import { PaymentDialog } from "./PaymentDialog";
 import { DeliveryProviderDialog } from "./DeliveryProviderDialog";
@@ -28,7 +27,6 @@ export function DialogHost() {
   if (state.dialog === "category") return <CategoryDialog key={key} />;
   if (state.dialog === "channel") return <ChannelDialog key={key} />;
   if (state.dialog === "source") return <SourceDialog key={key} />;
-  if (state.dialog === "product") return <ProductDialog key={key} />;
   if (state.dialog === "order") return <OrderDialog key={key} />;
   if (state.dialog === "payment") return <PaymentDialog key={key} />;
   if (state.dialog === "deliveryProvider") return <DeliveryProviderDialog key={key} />;

@@ -18,7 +18,7 @@ import { DialogOverlay, dialogTitleClass, fieldHintClass, fieldLabelClass, input
 // Inputs stay strings while typing; they're parsed on submit and for the live totals.
 interface ItemDraft {
   id: string;
-  productId: string;
+  productId: string; // the chosen variant's id
   quantity: string;
   subTotal: string;
 }
@@ -44,7 +44,7 @@ export function OrderDialog() {
 
   const [items, setItems] = useState<ItemDraft[]>(() =>
     editingOrder
-      ? editingOrder.items.map((i) => ({ id: i.id, productId: i.productId, quantity: String(i.quantity), subTotal: String(i.subTotal) }))
+      ? editingOrder.items.map((i) => ({ id: i.id, productId: i.variantId, quantity: String(i.quantity), subTotal: String(i.subTotal) }))
       : [{ id: crypto.randomUUID(), productId: "", quantity: "1", subTotal: "" }],
   );
   const [deliveryCharge, setDeliveryCharge] = useState(editingOrder ? String(editingOrder.deliveryCharge) : "0");
@@ -89,7 +89,7 @@ export function OrderDialog() {
       status: String(fd.get("status")) as OrderStatus,
       items: items.map((i) => ({
         id: i.id,
-        productId: i.productId,
+        variantId: i.productId,
         quantity: parseInt(i.quantity, 10) || 0,
         subTotal: roundMoney(toNumber(i.subTotal)),
       })),
@@ -106,6 +106,8 @@ export function OrderDialog() {
             channelId: String(fd.get("paymentChannelId") || "") || null,
           }
           : null,
+    }).then((problem) => {
+      if (problem) throw new Error(problem);
     });
   }
 

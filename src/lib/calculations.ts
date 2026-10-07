@@ -1,6 +1,6 @@
 import { ACCENT_RAMP } from "./mock-data";
 import { fmtMoney, monthKey, monthLabel, orderPaymentDescription } from "./format";
-import type { DeliveryProvider, Order, OrderItem, OrderPayment, PaymentStatus, Transaction } from "./types";
+import type { DeliveryProvider, Order, OrderItem, OrderPayment, PaymentStatus, Product, Transaction } from "./types";
 
 export interface DeltaBits {
   label: string;
@@ -181,6 +181,24 @@ export function syncOrderPayments(orders: Order[], transactions: Transaction[]):
     const amountPaid = roundMoney(paid.get(o.id) ?? 0);
     return amountPaid === o.amountPaid ? o : { ...o, amountPaid, ...orderTotals(o.items, o.deliveryCharge, amountPaid) };
   });
+}
+
+// Mirrors the DB trigger that takes stock off a variant when an order item is
+// saved and restores it when the item goes. Untracked orders don't touch stock.
+export function stockAfterOrderChange(products: Product[], before: Order | undefined, after: Order | undefined): Product[] {
+  const delta = new Map<string, number>();
+  const add = (order: Order | undefined, sign: 1 | -1) => {
+    if (!order?.stockTracked) return;
+    for (const item of order.items) delta.set(item.variantId, (delta.get(item.variantId) ?? 0) + sign * item.quantity);
+  };
+  add(before, 1);
+  add(after, -1);
+  if (delta.size === 0) return products;
+  return products.map((p) =>
+    p.variants.some((v) => delta.has(v.id))
+      ? { ...p, variants: p.variants.map((v) => ({ ...v, quantity: v.quantity + (delta.get(v.id) ?? 0) })) }
+      : p,
+  );
 }
 
 // External delivery charges are collected for the provider, not recognized as income.

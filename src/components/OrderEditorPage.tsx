@@ -23,7 +23,7 @@ const toNumber = (v: string) => parseFloat(v) || 0;
 
 function buildItemDrafts(order: Order | null): ItemDraft[] {
     return order
-        ? order.items.map((item) => ({ id: item.id, productId: item.productId, quantity: String(item.quantity), subTotal: String(item.subTotal) }))
+        ? order.items.map((item) => ({ id: item.id, productId: item.variantId, quantity: String(item.quantity), subTotal: String(item.subTotal) }))
         : [{ id: crypto.randomUUID(), productId: "", quantity: "1", subTotal: "" }];
 }
 
@@ -84,14 +84,14 @@ export function OrderEditorPage({ mode, orderId }: { mode: "new" | "edit"; order
 
         const formData = new FormData(event.currentTarget);
         try {
-            await submitOrder({
+            const problem = await submitOrder({
                 id: order?.id,
                 customerId: String(formData.get("customerId") || ""),
                 orderDate: String(formData.get("orderDate") || ""),
                 status: String(formData.get("status")) as OrderStatus,
                 items: items.map((item) => ({
                     id: item.id,
-                    productId: item.productId,
+                    variantId: item.productId,
                     quantity: parseInt(item.quantity, 10) || 0,
                     subTotal: roundMoney(toNumber(item.subTotal)),
                 })),
@@ -109,6 +109,11 @@ export function OrderEditorPage({ mode, orderId }: { mode: "new" | "edit"; order
                         }
                         : null,
             });
+            if (problem) {
+                setError(problem);
+                setPending(false);
+                return;
+            }
             router.push("/orders");
             router.refresh();
         } catch (err) {

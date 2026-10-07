@@ -67,16 +67,19 @@ export interface Invoice {
   paid: boolean;
 }
 
-export type PaperType = "lined" | "blank";
+// One sellable option combination (e.g. Color: Olive, Type: Lined) with its own stock and price.
+export interface ProductVariant {
+  id: string;
+  options: Record<string, string>; // one value per Product.optionNames entry
+  quantity: number;
+  price: number;
+}
 
-// One sellable variant: each name + color + paper type has its own stock and price.
 export interface Product {
   id: string;
   name: string;
-  color: string;
-  type: PaperType;
-  quantity: number;
-  price: number;
+  optionNames: string[];
+  variants: ProductVariant[];
 }
 
 export type OrderStatus = "processing" | "ready_for_delivery" | "out_for_delivery" | "delivered";
@@ -85,7 +88,7 @@ export type PaymentStatus = "paid" | "partially_paid";
 
 export interface OrderItem {
   id: string;
-  productId: string;
+  variantId: string;
   quantity: number;
   subTotal: number; // fixed at order time, not recomputed from the product's price
 }
@@ -100,6 +103,8 @@ export interface Order {
   orderDate: string;
   status: OrderStatus;
   items: OrderItem[];
+  // False for orders saved before stock tracking began; their items never change stock.
+  stockTracked: boolean;
   subTotal: number;
   deliveryCharge: number;
   deliveryLocation: string | null;
@@ -127,7 +132,6 @@ export type DialogKind =
   | "category"
   | "channel"
   | "source"
-  | "product"
   | "order"
   | "payment"
   | "deliveryProvider"

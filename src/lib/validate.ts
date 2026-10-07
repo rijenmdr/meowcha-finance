@@ -13,6 +13,7 @@ import type {
   OrderStatus,
   PaymentMethod,
   Product,
+  ProductVariant,
   Source,
   Transaction,
   TxnType,
@@ -140,16 +141,26 @@ export function parsePaymentMethod(value: unknown): PaymentMethod {
 
 export function parseProduct(value: unknown): Product {
   const v = obj(value, "product");
-  if (v.type !== "lined" && v.type !== "blank") fail("type");
-  const quantity = num(v.quantity, "quantity");
-  if (!Number.isInteger(quantity)) fail("quantity");
+  if (!Array.isArray(v.optionNames) || v.optionNames.length > 5) fail("optionNames");
+  const optionNames = v.optionNames.map((n) => str(n, "optionNames", { max: 50, required: true }).trim());
+  if (new Set(optionNames.map((n) => n.toLowerCase())).size !== optionNames.length) fail("optionNames");
+  if (!Array.isArray(v.variants) || v.variants.length === 0 || v.variants.length > 100) fail("variants");
+  const variants = v.variants.map((raw): ProductVariant => {
+    const variant = obj(raw, "variant");
+    const rawOptions = obj(variant.options, "options");
+    const options: Record<string, string> = {};
+    for (const name of optionNames) options[name] = str(rawOptions[name], name, { max: 100, required: true }).trim();
+    const quantity = num(variant.quantity, "quantity");
+    if (!Number.isInteger(quantity)) fail("quantity");
+    return { id: id(variant.id), options, quantity, price: roundMoney(num(variant.price, "price")) };
+  });
+  const combos = new Set(variants.map((x) => optionNames.map((n) => x.options[n].toLowerCase()).join("\u0000")));
+  if (combos.size !== variants.length) fail("variants");
   return {
     id: id(v.id),
-    name: str(v.name, "name", { max: 200, required: true }),
-    color: str(v.color, "color", { max: 100, required: true }),
-    type: v.type,
-    quantity,
-    price: num(v.price, "price"),
+    name: str(v.name, "name", { max: 200, required: true }).trim(),
+    optionNames,
+    variants,
   };
 }
 
@@ -170,7 +181,7 @@ const ORDER_STATUSES: readonly OrderStatus[] = ["processing", "ready_for_deliver
 // Totals and payment status are recomputed rather than trusted, matching what
 // the DB derives, so the returned order is exactly what save_order() stores.
 // orderNumber is left out: the DB assigns it and ignores any sent value.
-export function parseOrder(value: unknown): Omit<Order, "orderNumber"> {
+export function parseOrder(value: unknown): Omit<Order, "orderNumber" | "stockTracked"> {
   const v = obj(value, "order");
   if (!ORDER_STATUSES.includes(v.status as OrderStatus)) fail("status");
   if (!Array.isArray(v.items) || v.items.length === 0 || v.items.length > 200) fail("items");
@@ -180,12 +191,12 @@ export function parseOrder(value: unknown): Omit<Order, "orderNumber"> {
     if (!Number.isInteger(quantity) || quantity < 1) fail("quantity");
     return {
       id: id(item.id),
-      productId: id(item.productId, "productId"),
+      variantId: id(item.variantId, "variantId"),
       quantity,
       subTotal: roundMoney(num(item.subTotal, "subTotal")),
     };
   });
-  if (new Set(items.map((i) => i.productId)).size !== items.length) fail("items");
+  if (new Set(items.map((i) => i.variantId)).size !== items.length) fail("items");
   const deliveryCharge = roundMoney(num(v.deliveryCharge, "deliveryCharge"));
   const amountPaid = roundMoney(num(v.amountPaid, "amountPaid"));
   const totals = orderTotals(items, deliveryCharge, amountPaid);

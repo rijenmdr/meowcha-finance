@@ -178,7 +178,11 @@ export async function deleteCustomerAction(id: string): Promise<void> {
 export async function saveProductAction(input: Product): Promise<void> {
   await requireSession();
   const product = parseProduct(input);
-  const { error } = await getSupabase().from("products").upsert(product);
+  // An RPC so the product and its variants save atomically.
+  const { error } = await getSupabase().rpc("save_product", {
+    p_product: { id: product.id, name: product.name, option_names: product.optionNames },
+    p_variants: product.variants.map((v) => ({ id: v.id, options: v.options, quantity: v.quantity, price: v.price })),
+  });
   if (error) throw new Error(error.message);
 }
 
@@ -196,7 +200,7 @@ export async function deleteInvoiceAction(id: string): Promise<void> {
 
 // Returns the order number, which the DB assigns when the order is first saved.
 // payment, when given, is recorded as the order's first payment (an income transaction).
-export async function saveOrderAction(input: Omit<Order, "orderNumber">, payment: OrderPayment | null): Promise<string> {
+export async function saveOrderAction(input: Omit<Order, "orderNumber" | "stockTracked">, payment: OrderPayment | null): Promise<string> {
   await requireSession();
   const order = parseOrder(input);
   const firstPayment = payment === null ? null : parseOrderPayment(payment);
@@ -214,7 +218,7 @@ export async function saveOrderAction(input: Omit<Order, "orderNumber">, payment
     },
     p_items: order.items.map((item) => ({
       id: item.id,
-      product_id: item.productId,
+      variant_id: item.variantId,
       quantity: item.quantity,
       sub_total: item.subTotal,
     })),
