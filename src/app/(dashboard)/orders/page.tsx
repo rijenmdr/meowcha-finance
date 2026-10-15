@@ -14,7 +14,14 @@ export default async function OrdersPage({ searchParams }: PageProps<"/orders">)
         <StatCard label="Balance due" value={data.orderBalanceDueDisplay} />
         <StatCard label="Not yet delivered" value={data.openOrderCountDisplay} />
       </div>
-      <OrdersTable rows={data.rows} total={data.total} query={data.query} />
+      <OrdersTable
+        rows={data.rows}
+        total={data.total}
+        query={data.query}
+        search={data.search}
+        filterOrderStatus={data.filterOrderStatus}
+        filterPaymentStatus={data.filterPaymentStatus}
+      />
     </div>
   );
 }

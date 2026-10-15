@@ -246,14 +246,31 @@ interface OrderList {
 
 export async function getOrdersPage(params: URLSearchParams) {
   const { start, end } = dateRange(params);
+  const search = (params.get("q") ?? "").trim();
+  const orderStatus = params.get("orderStatus");
+  const paymentStatus = params.get("paymentStatus");
+  const filterOrderStatus: OrderStatus | "all" =
+    orderStatus === "processing" || orderStatus === "ready_for_delivery" || orderStatus === "out_for_delivery" || orderStatus === "delivered"
+      ? orderStatus
+      : "all";
+  const filterPaymentStatus: PaymentStatus | "all" = paymentStatus === "paid" || paymentStatus === "partially_paid" ? paymentStatus : "all";
   const { result, query } = await pagedRpc<OrderList>(
     "list_orders",
-    { p_start: start, p_end: end },
+    {
+      p_start: start,
+      p_end: end,
+      p_search: search || null,
+      p_order_status: filterOrderStatus === "all" ? null : filterOrderStatus,
+      p_payment_status: filterPaymentStatus === "all" ? null : filterPaymentStatus,
+    },
     parseTableQuery(params, ORDER_SORTS, { sort: "orderDate", desc: true }),
   );
 
   return {
     query,
+    search,
+    filterOrderStatus,
+    filterPaymentStatus,
     total: result.total,
     orderCountDisplay: String(result.total),
     orderRevenueDisplay: fmtMoney(result.revenue),

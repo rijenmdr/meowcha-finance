@@ -590,6 +590,9 @@ $$;
 -- last payment (the Record payment dialog's defaults), plus the range's totals.
 create or replace function list_orders(
   p_start date, p_end date,
+  p_search text,
+  p_order_status text,
+  p_payment_status text,
   p_sort text, p_desc boolean, p_limit integer, p_offset integer
 ) returns jsonb
 language sql stable security invoker
@@ -606,6 +609,23 @@ as $$
     left join delivery_providers dp on dp.id = o.delivery_provider_id
     left join payment_methods pm on pm.id = o.payment_method_id
     where o.order_date between p_start and p_end
+      and (p_order_status is null or o.order_status::text = p_order_status)
+      and (p_payment_status is null or o.payment_status::text = p_payment_status)
+      and (
+        nullif(trim(p_search), '') is null
+        or o.order_number ilike '%' || trim(p_search) || '%'
+        or cu.name ilike '%' || trim(p_search) || '%'
+        or coalesce(cu.phone, '') ilike '%' || trim(p_search) || '%'
+        or replace(o.order_status::text, '_', ' ') ilike '%' || replace(trim(p_search), '_', ' ') || '%'
+        or exists (
+          select 1
+          from order_items oi
+          join product_variants v on v.id = oi.variant_id
+          join products pr on pr.id = v.product_id
+          where oi.order_id = o.id
+            and pr.name ilike '%' || trim(p_search) || '%'
+        )
+      )
   ),
   ranked as (
     select f.*, row_number() over (order by
@@ -845,7 +865,7 @@ grant select on report_transactions to service_role;
 revoke execute on function overview_summary(date, date, date, date, boolean) from public, anon, authenticated;
 revoke execute on function list_transactions(date, date, text, text, text, boolean, integer, integer) from public, anon, authenticated;
 revoke execute on function list_invoices(date, date, date, text, boolean, integer, integer) from public, anon, authenticated;
-revoke execute on function list_orders(date, date, text, boolean, integer, integer) from public, anon, authenticated;
+revoke execute on function list_orders(date, date, text, text, text, text, boolean, integer, integer) from public, anon, authenticated;
 revoke execute on function budget_summary(date, date) from public, anon, authenticated;
 revoke execute on function customer_summary(date, date) from public, anon, authenticated;
 revoke execute on function category_summary() from public, anon, authenticated;
@@ -858,7 +878,7 @@ revoke execute on function variants_in_use(text) from public, anon, authenticate
 grant execute on function overview_summary(date, date, date, date, boolean) to service_role;
 grant execute on function list_transactions(date, date, text, text, text, boolean, integer, integer) to service_role;
 grant execute on function list_invoices(date, date, date, text, boolean, integer, integer) to service_role;
-grant execute on function list_orders(date, date, text, boolean, integer, integer) to service_role;
+grant execute on function list_orders(date, date, text, text, text, text, boolean, integer, integer) to service_role;
 grant execute on function budget_summary(date, date) to service_role;
 grant execute on function customer_summary(date, date) to service_role;
 grant execute on function category_summary() to service_role;
