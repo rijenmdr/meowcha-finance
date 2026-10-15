@@ -1,14 +1,19 @@
-import { flexRender, type ColumnDef } from "@tanstack/react-table";
+"use client";
+
+import type { ColumnDef } from "@tanstack/react-table";
 import { useMemo } from "react";
-import { cx } from "@/lib/cx";
+import { cn } from "@/lib/utils";
+import type { TableQuery } from "@/lib/table-params";
+import type { Invoice } from "@/lib/types";
 import { Panel } from "./Panel";
 import { DeleteButton, EditButton } from "./IconButton";
-import { useFinance } from "@/lib/finance-context";
-import { useDataTable } from "@/lib/use-data-table";
+import { useFinance, useOptimisticRows } from "@/lib/finance-context";
+import { useServerDataTable } from "@/lib/use-data-table";
 import { SortableHeader } from "./SortableHeader";
 import { TablePagination } from "./TablePagination";
+import { DataTable } from "./DataTable";
 
-interface InvoiceRow {
+export interface InvoiceRow {
   id: string;
   client: string;
   issueDate: string;
@@ -20,13 +25,13 @@ interface InvoiceRow {
   status: string;
   statusClass: string;
   showMarkPaid: boolean;
+  invoice: Invoice;
 }
 
-const thClass = "border-b border-line px-4 py-2.5 text-10 tracking-[0.08em] text-ink/60 uppercase";
-const tdClass = "border-b border-line-soft px-4 py-2.5";
-
-export function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
+// The rows are one page from the server; sort and page live in the URL.
+export function InvoicesTable({ rows, total, query }: { rows: InvoiceRow[]; total: number; query: TableQuery }) {
   const { openEditInvoice, deleteInvoice, markInvoicePaid } = useFinance();
+  const visibleRows = useOptimisticRows(rows);
   const columns = useMemo<ColumnDef<InvoiceRow>[]>(
     () => [
       {
@@ -52,7 +57,7 @@ export function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
       {
         accessorKey: "status",
         header: ({ header }) => <SortableHeader header={header} title="Status" />,
-        cell: ({ row }) => <span className={cx("px-2 py-0.75 text-11", row.original.statusClass)}>{row.original.status}</span>,
+        cell: ({ row }) => <span className={cn("px-2 py-0.75 text-11", row.original.statusClass)}>{row.original.status}</span>,
       },
       {
         id: "actions",
@@ -63,13 +68,13 @@ export function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
             {row.original.showMarkPaid && (
               <button
                 type="button"
-                onClick={() => markInvoicePaid(row.original.id)}
+                onClick={() => markInvoicePaid(row.original.invoice)}
                 className="cursor-pointer border-none bg-transparent py-0 pr-2 pl-0 font-condensed text-12 font-semibold text-accent-500"
               >
                 Mark paid
               </button>
             )}
-            <EditButton onClick={() => openEditInvoice(row.original.id)} />
+            <EditButton onClick={() => openEditInvoice(row.original.invoice)} />
             <DeleteButton onClick={() => deleteInvoice(row.original.id)} />
           </div>
         ),
@@ -77,40 +82,11 @@ export function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
     ],
     [deleteInvoice, markInvoicePaid, openEditInvoice],
   );
-  const table = useDataTable({ data: rows, columns, initialSorting: [{ id: "issueDate", desc: true }] });
+  const table = useServerDataTable({ data: visibleRows, columns, rowCount: total, query });
 
   return (
     <Panel>
-      <table className="w-full text-13">
-        <thead>
-          {table.getHeaderGroups().map((headerGroup) => (
-            <tr key={headerGroup.id}>
-              {headerGroup.headers.map((header) => {
-                const headerClass = ["amount", "actions"].includes(header.column.id) ? "text-right" : "text-left";
-                return (
-                  <th key={header.id} className={cx(thClass, headerClass)}>
-                    {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
-                  </th>
-                );
-              })}
-            </tr>
-          ))}
-        </thead>
-        <tbody>
-          {table.getRowModel().rows.map((row) => (
-            <tr key={row.id}>
-              {row.getVisibleCells().map((cell) => {
-                const cellClass = ["amount", "actions"].includes(cell.column.id) ? "text-right" : "";
-                return (
-                  <td key={cell.id} className={cx(tdClass, cellClass)}>
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <DataTable table={table} columnClasses={{ amount: "text-right", actions: "text-right" }} />
       <TablePagination table={table} />
     </Panel>
   );

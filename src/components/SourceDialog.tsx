@@ -1,36 +1,38 @@
 "use client";
 
-import { useFinance, useDashboardData } from "@/lib/finance-context";
-import { DialogOverlay, dialogTitleClass, fieldHintClass, fieldLabelClass, inputClass } from "./DialogOverlay";
+import { useId } from "react";
+import { useFinance, useLookups } from "@/lib/finance-context";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { DialogOverlay } from "./DialogOverlay";
 
 export function SourceDialog() {
   const { submitSource } = useFinance();
-  const { editingSource } = useDashboardData();
+  const { editingSource } = useLookups();
+  const id = useId();
 
   function handleSubmit(fd: FormData) {
     return submitSource({ name: String(fd.get("name") || "").trim() });
   }
 
   return (
-    <DialogOverlay className="max-w-105" onSubmit={handleSubmit}>
-      <div className={dialogTitleClass}>{editingSource ? "Edit source" : "Add source"}</div>
-
-      <div>
-        <label className={fieldLabelClass}>Name</label>
-        <input
+    <DialogOverlay title={editingSource ? "Edit source" : "Add source"} className="max-w-105" onSubmit={handleSubmit}>
+      <Field>
+        <FieldLabel htmlFor={`${id}-name`}>Name</FieldLabel>
+        <Input
+          id={`${id}-name`}
           type="text"
           name="name"
           defaultValue={editingSource ? editingSource.name : ""}
           required
           pattern=".*\S.*"
-          className={inputClass}
         />
-        <div className={fieldHintClass}>
+        <FieldDescription>
           {editingSource
             ? "Renaming updates every expense that uses this source."
             : "Where the money for an expense comes from, e.g. a bank account or cash."}
-        </div>
-      </div>
+        </FieldDescription>
+      </Field>
     </DialogOverlay>
   );
 }

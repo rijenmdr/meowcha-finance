@@ -1,5 +1,13 @@
 export type TxnType = "income" | "expense";
 
+export type DatePreset = "today" | "week" | "month" | "year" | "custom";
+
+export interface DateFilter {
+  preset: DatePreset;
+  start: string; // YYYY-MM-DD
+  end: string; // YYYY-MM-DD
+}
+
 export interface Transaction {
   id: string;
   date: string; // YYYY-MM-DD
@@ -67,16 +75,19 @@ export interface Invoice {
   paid: boolean;
 }
 
-export type PaperType = "lined" | "blank";
+// One sellable option combination (e.g. Color: Olive, Type: Lined) with its own stock and price.
+export interface ProductVariant {
+  id: string;
+  options: Record<string, string>; // one value per Product.optionNames entry
+  quantity: number;
+  price: number;
+}
 
-// One sellable variant: each name + color + paper type has its own stock and price.
 export interface Product {
   id: string;
   name: string;
-  color: string;
-  type: PaperType;
-  quantity: number;
-  price: number;
+  optionNames: string[];
+  variants: ProductVariant[];
 }
 
 export type OrderStatus = "processing" | "ready_for_delivery" | "out_for_delivery" | "delivered";
@@ -85,14 +96,14 @@ export type PaymentStatus = "paid" | "partially_paid";
 
 export interface OrderItem {
   id: string;
-  productId: string;
+  variantId: string;
   quantity: number;
   subTotal: number; // fixed at order time, not recomputed from the product's price
 }
 
 // subTotal, totalPrice and paymentStatus are derived in the DB (see save_order),
-// and amountPaid is the sum of the order's payment transactions. The client
-// mirrors that with orderTotals() / syncOrderPayments() so state matches after a save.
+// and amountPaid is the sum of the order's payment transactions. The order
+// editor previews the totals with orderTotals().
 export interface Order {
   id: string;
   orderNumber: string; // assigned by the DB on first save; never edited
@@ -100,6 +111,8 @@ export interface Order {
   orderDate: string;
   status: OrderStatus;
   items: OrderItem[];
+  // False for orders saved before stock tracking began; their items never change stock.
+  stockTracked: boolean;
   subTotal: number;
   deliveryCharge: number;
   deliveryLocation: string | null;
@@ -127,8 +140,6 @@ export type DialogKind =
   | "category"
   | "channel"
   | "source"
-  | "product"
-  | "order"
   | "payment"
   | "deliveryProvider"
   | "paymentMethod"
@@ -153,4 +164,29 @@ export interface InvoiceFormValues {
   dueDate: string;
   amount: string;
   paid: boolean;
+}
+
+// The small reference tables the dashboard layout loads once, for dropdowns,
+// dialogs and duplicate checks. Everything that grows with use (transactions,
+// orders, invoices) is queried per page instead.
+export interface Lookups {
+  categories: Category[];
+  channels: Channel[];
+  sources: Source[];
+  customers: Customer[];
+  deliveryProviders: DeliveryProvider[];
+  paymentMethods: PaymentMethod[];
+  products: Product[];
+  budgets: Budget[];
+}
+
+// The order the Record payment dialog adds to. categoryId / channelId come from
+// its last payment, so a repeat payment defaults to the same ones.
+export interface PaymentTarget {
+  orderId: string;
+  orderNumber: string;
+  totalPrice: number;
+  amountPaid: number;
+  categoryId: string | null;
+  channelId: string | null;
 }

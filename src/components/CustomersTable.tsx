@@ -1,12 +1,14 @@
-import { flexRender, type ColumnDef } from "@tanstack/react-table";
+"use client";
+
+import type { ColumnDef } from "@tanstack/react-table";
 import { useMemo } from "react";
-import { cx } from "@/lib/cx";
 import { Panel } from "./Panel";
 import { DeleteButton, EditButton } from "./IconButton";
-import { useFinance } from "@/lib/finance-context";
+import { useFinance, useOptimisticRows } from "@/lib/finance-context";
 import { useDataTable } from "@/lib/use-data-table";
 import { SortableHeader } from "./SortableHeader";
 import { TablePagination } from "./TablePagination";
+import { DataTable } from "./DataTable";
 
 interface CustomerRow {
   id: string;
@@ -20,14 +22,14 @@ interface CustomerRow {
   paymentsLabel: string;
   lastDate: string;
   lastDisplay: string;
+  orderCount: number;
 }
 
-const thClass = "border-b border-line px-4 py-2.5 text-10 tracking-[0.08em] text-ink/60 uppercase";
-const tdClass = "border-b border-line-soft px-4 py-2.5";
 const subLineClass = "mt-0.5 text-11 text-ink/60";
 
 export function CustomersTable({ rows, empty }: { rows: CustomerRow[]; empty: boolean }) {
   const { openEditCustomer, deleteCustomer } = useFinance();
+  const visibleRows = useOptimisticRows(rows);
   const columns = useMemo<ColumnDef<CustomerRow>[]>(
     () => [
       {
@@ -72,47 +74,18 @@ export function CustomersTable({ rows, empty }: { rows: CustomerRow[]; empty: bo
         cell: ({ row }) => (
           <div className="text-right whitespace-nowrap">
             <EditButton onClick={() => openEditCustomer(row.original.id)} />
-            <DeleteButton onClick={() => deleteCustomer(row.original.id)} />
+            <DeleteButton onClick={() => deleteCustomer(row.original)} />
           </div>
         ),
       },
     ],
     [deleteCustomer, openEditCustomer],
   );
-  const table = useDataTable({ data: rows, columns, initialSorting: [{ id: "lastDate", desc: true }] });
+  const table = useDataTable({ data: visibleRows, columns, initialSorting: [{ id: "lastDate", desc: true }] });
 
   return (
     <Panel>
-      <table className="w-full text-13">
-        <thead>
-          {table.getHeaderGroups().map((headerGroup) => (
-            <tr key={headerGroup.id}>
-              {headerGroup.headers.map((header) => {
-                const headerClass = ["inRangeIncome", "lifetimeIncome", "actions"].includes(header.column.id) ? "text-right" : "text-left";
-                return (
-                  <th key={header.id} className={cx(thClass, headerClass)}>
-                    {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
-                  </th>
-                );
-              })}
-            </tr>
-          ))}
-        </thead>
-        <tbody>
-          {table.getRowModel().rows.map((row) => (
-            <tr key={row.id}>
-              {row.getVisibleCells().map((cell) => {
-                const cellClass = ["inRangeIncome", "lifetimeIncome", "actions"].includes(cell.column.id) ? "text-right" : "";
-                return (
-                  <td key={cell.id} className={cx(tdClass, cellClass)}>
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <DataTable table={table} columnClasses={{ inRangeIncome: "text-right", lifetimeIncome: "text-right", actions: "text-right" }} />
       <TablePagination table={table} />
       {empty && <div className="px-4 py-6 text-13 text-ink/55">No customers yet. Add one, then pick them when recording income.</div>}
     </Panel>

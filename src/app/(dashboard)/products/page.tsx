@@ -1,11 +1,9 @@
-"use client";
-
-import { useDashboardData } from "@/lib/finance-context";
+import { getProductsPage } from "@/lib/page-data";
 import { StatCard } from "@/components/StatCard";
 import { ProductsTable } from "@/components/ProductsTable";
 
-export default function ProductsPage() {
-  const data = useDashboardData();
+export default async function ProductsPage() {
+  const data = await getProductsPage();
 
   return (
     <div>
@@ -13,9 +11,9 @@ export default function ProductsPage() {
         <StatCard label="Products" value={data.productCountDisplay} />
         <StatCard label="Units in stock" value={data.unitsInStockDisplay} />
         <StatCard label="Stock value" value={data.stockValueDisplay} tinted />
-        <StatCard label="Out of stock" value={data.outOfStockDisplay} />
+        <StatCard label="Variants out of stock" value={data.outOfStockDisplay} />
       </div>
-      <ProductsTable rows={data.productRows} empty={data.productsEmpty} />
+      <ProductsTable rows={data.rows} empty={data.productsEmpty} />
     </div>
   );
 }

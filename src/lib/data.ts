@@ -6,29 +6,12 @@ import type {
   Channel,
   Customer,
   DeliveryProvider,
-  Invoice,
+  Lookups,
   Order,
   PaymentMethod,
   Product,
   Source,
-  Transaction,
 } from "./types";
-
-export async function getTransactions(): Promise<Transaction[]> {
-  const { data, error } = await getSupabase()
-    .from("transactions")
-    .select("id, date, type, category_id, description, amount, channel_id, source_id, customer_id, order_id")
-    .order("date", { ascending: true });
-  if (error) throw new Error(error.message);
-  return (data ?? []).map(({ category_id, channel_id, source_id, customer_id, order_id, ...row }) => ({
-    ...row,
-    categoryId: category_id,
-    channelId: channel_id,
-    sourceId: source_id,
-    customerId: customer_id,
-    orderId: order_id,
-  }));
-}
 
 export async function getCategories(): Promise<Category[]> {
   const { data, error } = await getSupabase()
@@ -90,55 +73,50 @@ export async function getBudgets(): Promise<Budget[]> {
   return (data ?? []).map((row) => ({ id: row.id, categoryId: row.category_id, target: row.target }));
 }
 
-export async function getInvoices(): Promise<Invoice[]> {
-  const { data, error } = await getSupabase()
-    .from("invoices")
-    .select("id, customer_id, issue_date, due_date, amount, paid")
-    .order("issue_date", { ascending: true });
-  if (error) throw new Error(error.message);
-  return (data ?? []).map((row) => ({
-    id: row.id,
-    customerId: row.customer_id,
-    issueDate: row.issue_date,
-    dueDate: row.due_date,
-    amount: row.amount,
-    paid: row.paid,
-  }));
-}
-
 export async function getProducts(): Promise<Product[]> {
   const { data, error } = await getSupabase()
     .from("products")
-    .select("id, name, color, type, quantity, price")
-    .order("name", { ascending: true })
-    .order("color", { ascending: true })
-    .order("type", { ascending: true });
-  if (error) throw new Error(error.message);
-  return data ?? [];
-}
-
-export async function getOrders(): Promise<Order[]> {
-  const { data, error } = await getSupabase()
-    .from("orders")
-    .select(
-      "id, order_number, customer_id, order_date, order_status, sub_total, delivery_charge, delivery_location, delivery_provider_id, payment_method_id, total_price, amount_paid, payment_status, order_items (id, product_id, quantity, sub_total)",
-    )
-    .order("order_date", { ascending: true })
-    .order("order_number", { ascending: true });
+    .select("id, name, option_names, product_variants (id, options, quantity, price)")
+    .order("name", { ascending: true });
   if (error) throw new Error(error.message);
   return (data ?? []).map((row) => ({
+    id: row.id,
+    name: row.name,
+    optionNames: row.option_names,
+    variants: (row.product_variants ?? []).map((v: { id: string; options: Record<string, string>; quantity: number; price: number }) => ({
+      id: v.id,
+      options: v.options,
+      quantity: v.quantity,
+      price: v.price,
+    })),
+  }));
+}
+
+// One order with its items, for the order editor.
+export async function getOrder(id: string): Promise<Order | null> {
+  const { data: row, error } = await getSupabase()
+    .from("orders")
+    .select(
+      "id, order_number, customer_id, order_date, order_status, sub_total, delivery_charge, delivery_location, delivery_provider_id, payment_method_id, total_price, amount_paid, payment_status, order_items (id, variant_id, quantity, sub_total, stock_tracked)",
+    )
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!row) return null;
+  return {
     id: row.id,
     orderNumber: row.order_number,
     customerId: row.customer_id,
     orderDate: row.order_date,
     status: row.order_status,
-    items: (row.order_items ?? []).map((item: { id: string; product_id: string; quantity: number; sub_total: number }) => ({
+    items: (row.order_items ?? []).map((item: { id: string; variant_id: string; quantity: number; sub_total: number }) => ({
       id: item.id,
-      productId: item.product_id,
+      variantId: item.variant_id,
       quantity: item.quantity,
       subTotal: item.sub_total,
     })),
     subTotal: row.sub_total,
+    stockTracked: (row.order_items ?? []).every((item: { stock_tracked: boolean }) => item.stock_tracked),
     deliveryCharge: row.delivery_charge,
     deliveryLocation: row.delivery_location,
     deliveryProviderId: row.delivery_provider_id,
@@ -146,23 +124,31 @@ export async function getOrders(): Promise<Order[]> {
     totalPrice: row.total_price,
     amountPaid: row.amount_paid,
     paymentStatus: row.payment_status,
-  }));
+  };
 }
 
-export async function getDashboardData() {
-  const [transactions, budgets, invoices, customers, categories, channels, sources, products, orders, deliveryProviders, paymentMethods] =
-    await Promise.all([
-      getTransactions(),
-      getBudgets(),
-      getInvoices(),
-      getCustomers(),
-      getCategories(),
-      getChannels(),
-      getSources(),
-      getProducts(),
-      getOrders(),
-      getDeliveryProviders(),
-      getPaymentMethods(),
-    ]);
-  return { transactions, budgets, invoices, customers, categories, channels, sources, products, orders, deliveryProviders, paymentMethods };
+// Ids of the product's variants that are on an order, which save_product can't remove.
+export async function getVariantIdsInUse(productId: string): Promise<string[]> {
+  return rpc<string[]>("variants_in_use", { p_product_id: productId });
+}
+
+export async function getLookups(): Promise<Lookups> {
+  const [categories, channels, sources, customers, deliveryProviders, paymentMethods, products, budgets] = await Promise.all([
+    getCategories(),
+    getChannels(),
+    getSources(),
+    getCustomers(),
+    getDeliveryProviders(),
+    getPaymentMethods(),
+    getProducts(),
+    getBudgets(),
+  ]);
+  return { categories, channels, sources, customers, deliveryProviders, paymentMethods, products, budgets };
+}
+
+// Calls one of the reporting functions in schema.sql, which all return jsonb.
+export async function rpc<T>(fn: string, args: Record<string, unknown> = {}): Promise<T> {
+  const { data, error } = await getSupabase().rpc(fn, args);
+  if (error) throw new Error(error.message);
+  return data as T;
 }

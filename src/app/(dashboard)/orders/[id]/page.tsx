@@ -1,6 +1,8 @@
+import { getOrder } from "@/lib/data";
 import { OrderEditorPage } from "@/components/OrderEditorPage";
 
-export default async function EditOrderPage({ params }: { params: Promise<{ id: string }> }) {
-    const { id } = await params;
-    return <OrderEditorPage mode="edit" orderId={id} />;
+export default async function EditOrderPage({ params }: PageProps<"/orders/[id]">) {
+  const { id } = await params;
+  const order = await getOrder(id);
+  return <OrderEditorPage mode="edit" order={order} />;
 }

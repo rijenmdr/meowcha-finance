@@ -1,11 +1,10 @@
-"use client";
-
-import { useDashboardData } from "@/lib/finance-context";
+import { getCustomersPage } from "@/lib/page-data";
+import { toSearchParams } from "@/lib/table-params";
 import { StatCard } from "@/components/StatCard";
 import { CustomersTable } from "@/components/CustomersTable";
 
-export default function CustomersPage() {
-  const data = useDashboardData();
+export default async function CustomersPage({ searchParams }: PageProps<"/customers">) {
+  const data = await getCustomersPage(toSearchParams(await searchParams));
 
   return (
     <div>
@@ -15,7 +14,7 @@ export default function CustomersPage() {
         <StatCard label="Unlinked income" value={data.unlinkedIncomeDisplay} />
         <StatCard label="Top customer" value={data.topCustomerDisplay} />
       </div>
-      <CustomersTable rows={data.customerRows} empty={data.customersEmpty} />
+      <CustomersTable rows={data.rows} empty={data.customersEmpty} />
     </div>
   );
 }

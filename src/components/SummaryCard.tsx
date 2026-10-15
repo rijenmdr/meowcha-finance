@@ -1,4 +1,4 @@
-import { cx } from "@/lib/cx";
+import { cn } from "@/lib/utils";
 import { Panel } from "./Panel";
 import type { DeltaBits } from "@/lib/calculations";
 
@@ -18,7 +18,7 @@ export function SummaryCard({
   return (
     <Panel className="px-5 py-4.5" tinted={tinted}>
       <div className="mb-2 text-10 tracking-widest text-accent-500 uppercase">{label}</div>
-      <div className={cx("font-condensed text-30 font-semibold", valueClass)}>{value}</div>
+      <div className={cn("font-condensed text-30 font-semibold", valueClass)}>{value}</div>
       <div className="mt-2 flex items-center gap-1.25 text-12 text-ink/65">
         <svg
           width="13"

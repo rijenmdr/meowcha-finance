@@ -1,5 +1,5 @@
 import { OrderEditorPage } from "@/components/OrderEditorPage";
 
 export default function NewOrderPage() {
-    return <OrderEditorPage mode="new" />;
+  return <OrderEditorPage mode="new" order={null} />;
 }

@@ -1,7 +1,14 @@
 "use client";
 
+import { useId } from "react";
 import { usePathname } from "next/navigation";
+import { PlusIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { useFinance } from "@/lib/finance-context";
+import type { DatePreset } from "@/lib/types";
 import { CornerBrackets } from "./CornerBrackets";
 
 const PAGE_TITLES: Record<string, [string, string]> = {
@@ -13,47 +20,59 @@ const PAGE_TITLES: Record<string, [string, string]> = {
   "/categories": ["Categories", "Income and expense categories used across the dashboard"],
   "/channels": ["Channels", "Where income comes from and who expenses are paid to"],
   "/sources": ["Sources", "Where the money for each expense comes from"],
-  "/products": ["Products", "Stock and pricing for each color and paper type"],
+  "/products": ["Products", "Stock and pricing for each product variant"],
   "/orders": ["Orders", "Customer orders, delivery progress and payments"],
   "/delivery-providers": ["Delivery providers", "Who carries each order to the customer"],
   "/payment-methods": ["Payment methods", "How customers pay for their orders"],
 };
 
-const presetButtonClass =
-  "inline-flex cursor-pointer items-center border border-line bg-transparent px-2.5 py-1.5 font-condensed text-13 font-semibold text-ink";
+const DATE_PRESETS: [DatePreset, string][] = [
+  ["today", "Today"],
+  ["week", "This week"],
+  ["month", "This month"],
+  ["year", "This year"],
+  ["custom", "Custom"],
+];
 
 const dateLabelClass = "text-11 text-ink/60";
 
-const dateInputClass = "min-h-8.5 border border-line bg-surface px-2 py-1.25 text-13 text-ink";
+const dateInputClass = "h-auto min-h-8.5 w-auto px-2 py-1.25 text-13";
 
 export function Header() {
   const pathname = usePathname();
-  const { state, setDateStart, setDateEnd, presetMonth, presetQuarter, presetYTD, presetAll, openAddTxn, openAddBudget, openAddInvoice, openAddCustomer, openAddCategory, openAddChannel, openAddSource, openAddProduct, openAddOrder, openAddDeliveryProvider, openAddPaymentMethod } =
+  const fromId = useId();
+  const toId = useId();
+  const periodId = useId();
+  const { dateFilter, setDateStart, setDateEnd, setDatePreset, openAddTxn, openAddBudget, openAddInvoice, openAddCustomer, openAddCategory, openAddChannel, openAddSource, openAddProduct, openAddOrder, openAddDeliveryProvider, openAddPaymentMethod } =
     useFinance();
 
-  const [title, subtitle] = PAGE_TITLES[pathname] ?? PAGE_TITLES["/overview"];
+  const section = "/" + pathname.split("/")[1];
+  const [title, subtitle] = PAGE_TITLES[section] ?? PAGE_TITLES["/overview"];
   const [addLabel, onAddClick]: [string, () => void] =
-    pathname === "/budget"
+    section === "/budget"
       ? ["Add budget", openAddBudget]
-      : pathname === "/invoices"
+      : section === "/invoices"
         ? ["New invoice", openAddInvoice]
-        : pathname === "/customers"
+        : section === "/customers"
           ? ["Add customer", openAddCustomer]
-          : pathname === "/categories"
+          : section === "/categories"
             ? ["Add category", () => openAddCategory()]
-            : pathname === "/channels"
+            : section === "/channels"
               ? ["Add channel", () => openAddChannel()]
-              : pathname === "/sources"
+              : section === "/sources"
                 ? ["Add source", openAddSource]
-              : pathname === "/products"
+              : section === "/products"
                 ? ["Add product", openAddProduct]
-              : pathname === "/orders"
+              : section === "/orders"
                 ? ["New order", openAddOrder]
-              : pathname === "/delivery-providers"
+              : section === "/delivery-providers"
                 ? ["Add provider", openAddDeliveryProvider]
-              : pathname === "/payment-methods"
+              : section === "/payment-methods"
                 ? ["Add method", openAddPaymentMethod]
               : ["Add transaction", openAddTxn];
+
+  // The product and order form pages have their own title and buttons.
+  if (pathname.startsWith("/products/") || pathname.startsWith("/orders/")) return null;
 
   return (
     <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
@@ -62,40 +81,39 @@ export function Header() {
         <div className="text-13 text-ink/60">{subtitle}</div>
       </div>
       <div className="flex flex-wrap items-end gap-2.5">
-        <div className="flex gap-1.5">
-          <button type="button" onClick={presetMonth} className={presetButtonClass}>
-            This month
-          </button>
-          <button type="button" onClick={presetQuarter} className={presetButtonClass}>
-            Last 3 months
-          </button>
-          <button type="button" onClick={presetYTD} className={presetButtonClass}>
-            YTD
-          </button>
-          <button type="button" onClick={presetAll} className={presetButtonClass}>
-            All
-          </button>
-        </div>
         <div className="flex flex-col gap-1">
-          <label className={dateLabelClass}>From</label>
-          <input type="date" value={state.dateStart} onChange={(e) => setDateStart(e.target.value)} className={dateInputClass} />
+          <Label htmlFor={periodId} className={dateLabelClass}>
+            Period
+          </Label>
+          <NativeSelect id={periodId} value={dateFilter.preset} onChange={(e) => setDatePreset(e.target.value as DatePreset)} className="w-36">
+            {DATE_PRESETS.map(([value, label]) => (
+              <NativeSelectOption key={value} value={value}>
+                {label}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
         </div>
-        <div className="flex flex-col gap-1">
-          <label className={dateLabelClass}>To</label>
-          <input type="date" value={state.dateEnd} onChange={(e) => setDateEnd(e.target.value)} className={dateInputClass} />
-        </div>
-        <button
-          type="button"
-          onClick={onAddClick}
-          className="relative inline-flex cursor-pointer items-center gap-1.5 border border-accent-500 bg-accent-500 px-4 py-2.25 font-condensed text-14 font-semibold text-canvas"
-        >
+        {dateFilter.preset === "custom" && (
+          <>
+            <div className="flex flex-col gap-1">
+              <Label htmlFor={fromId} className={dateLabelClass}>
+                From
+              </Label>
+              <Input id={fromId} type="date" value={dateFilter.start} max={dateFilter.end} onChange={(e) => setDateStart(e.target.value)} className={dateInputClass} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label htmlFor={toId} className={dateLabelClass}>
+                To
+              </Label>
+              <Input id={toId} type="date" value={dateFilter.end} min={dateFilter.start} onChange={(e) => setDateEnd(e.target.value)} className={dateInputClass} />
+            </div>
+          </>
+        )}
+        <Button onClick={onAddClick} className="relative h-auto gap-1.5 py-2.25">
           <CornerBrackets className="text-accent-500/70" />
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 12h14" />
-            <path d="M12 5v14" />
-          </svg>
+          <PlusIcon aria-hidden strokeWidth={1.5} className="size-3.25" />
           {addLabel}
-        </button>
+        </Button>
       </div>
     </div>
   );

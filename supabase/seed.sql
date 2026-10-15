@@ -125,13 +125,18 @@ insert into invoices (id, customer_id, issue_date, due_date, amount, paid) value
   ('i7', 'c5', '2026-08-10', '2026-09-24', 320, false)
 on conflict (id) do nothing;
 
-insert into products (id, name, color, type, quantity, price) values
-  ('p0', 'A5 Notebook', 'Olive', 'lined', 24, 850),
-  ('p1', 'A5 Notebook', 'Olive', 'blank', 18, 800),
-  ('p2', 'A5 Notebook', 'Black', 'lined', 30, 900),
-  ('p3', 'A5 Notebook', 'Black', 'blank', 12, 850),
-  ('p4', 'Pocket Journal', 'Tan', 'lined', 40, 450),
-  ('p5', 'Pocket Journal', 'Tan', 'blank', 35, 420)
+insert into products (id, name, option_names) values
+  ('pr0', 'A5 Notebook', array['Color', 'Type']),
+  ('pr1', 'Pocket Journal', array['Color', 'Type'])
+on conflict (id) do nothing;
+
+insert into product_variants (id, product_id, options, quantity, price) values
+  ('p0', 'pr0', '{"Color": "Olive", "Type": "Lined"}', 24, 850),
+  ('p1', 'pr0', '{"Color": "Olive", "Type": "Blank"}', 18, 800),
+  ('p2', 'pr0', '{"Color": "Black", "Type": "Lined"}', 30, 900),
+  ('p3', 'pr0', '{"Color": "Black", "Type": "Blank"}', 12, 850),
+  ('p4', 'pr1', '{"Color": "Tan", "Type": "Lined"}', 40, 450),
+  ('p5', 'pr1', '{"Color": "Tan", "Type": "Blank"}', 35, 420)
 on conflict (id) do nothing;
 
 -- Through save_order() so each order's sub_total matches its items, it gets a
@@ -144,13 +149,13 @@ select save_order(
 )
 from (values
   ('{"id":"o0","customer_id":"c0","order_date":"2026-08-04","order_status":"delivered","delivery_charge":150}',
-   '[{"id":"oi0","product_id":"p0","quantity":4,"sub_total":3400},{"id":"oi1","product_id":"p4","quantity":5,"sub_total":2250}]',
+   '[{"id":"oi0","variant_id":"p0","quantity":4,"sub_total":3400},{"id":"oi1","variant_id":"p4","quantity":5,"sub_total":2250}]',
    'op0', 5800),
   ('{"id":"o1","customer_id":"c1","order_date":"2026-08-27","order_status":"out_for_delivery","delivery_charge":200}',
-   '[{"id":"oi2","product_id":"p2","quantity":3,"sub_total":2700},{"id":"oi3","product_id":"p3","quantity":2,"sub_total":1700}]',
+   '[{"id":"oi2","variant_id":"p2","quantity":3,"sub_total":2700},{"id":"oi3","variant_id":"p3","quantity":2,"sub_total":1700}]',
    'op1', 2000),
   ('{"id":"o2","customer_id":"c3","order_date":"2026-09-10","order_status":"processing","delivery_charge":0}',
-   '[{"id":"oi4","product_id":"p1","quantity":2,"sub_total":1600}]',
+   '[{"id":"oi4","variant_id":"p1","quantity":2,"sub_total":1600}]',
    'op2', 800)
 ) as v(o, i, pay_id, paid)
 cross join (select id from categories where type = 'income' and name = 'Order Sales') c

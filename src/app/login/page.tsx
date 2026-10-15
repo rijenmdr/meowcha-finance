@@ -4,8 +4,9 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { CornerBrackets } from "@/components/CornerBrackets";
 import { Logo } from "@/components/Logo";
-import { fieldLabelClass, inputClass, saveButtonClass } from "@/components/DialogOverlay";
-import { cx } from "@/lib/cx";
+import { Button } from "@/components/ui/button";
+import { Field, FieldError, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 
 export default function LoginPage() {
@@ -58,25 +59,21 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <div>
-          <label htmlFor="email" className={fieldLabelClass}>
-            Email
-          </label>
-          <input id="email" type="email" name="email" autoComplete="username" required className={inputClass} />
-        </div>
+        <Field>
+          <FieldLabel htmlFor="email">Email</FieldLabel>
+          <Input id="email" type="email" name="email" autoComplete="username" required />
+        </Field>
 
-        <div>
-          <label htmlFor="password" className={fieldLabelClass}>
-            Password
-          </label>
-          <input id="password" type="password" name="password" autoComplete="current-password" required className={inputClass} />
-        </div>
+        <Field>
+          <FieldLabel htmlFor="password">Password</FieldLabel>
+          <Input id="password" type="password" name="password" autoComplete="current-password" required />
+        </Field>
 
-        {error && <div className="text-13 text-error">{error}</div>}
+        {error && <FieldError>{error}</FieldError>}
 
-        <button type="submit" disabled={pending} className={cx(saveButtonClass, "mt-1.5 flex w-full justify-center")}>
+        <Button type="submit" disabled={pending} className="mt-1.5 w-full">
           {pending ? "Signing in…" : "Sign in"}
-        </button>
+        </Button>
 
         <div className="mt-1 text-11 text-ink/55">Access is restricted to the Meowcha admin account.</div>
       </form>

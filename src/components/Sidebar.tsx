@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { pickDateFilterSearch } from "@/lib/format";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { Logo } from "./Logo";
 
@@ -158,6 +160,8 @@ const navLinkClass =
 export function Sidebar({ userEmail }: { userEmail: string }) {
   const router = useRouter();
   const pathname = usePathname();
+  // Carry the date filter between pages, the way the Header's Period select sets it.
+  const filterSearch = pickDateFilterSearch(useSearchParams());
   const email = userEmail;
 
   async function handleLogout() {
@@ -167,7 +171,7 @@ export function Sidebar({ userEmail }: { userEmail: string }) {
   }
 
   return (
-    <div className="flex w-59 flex-none flex-col border-r border-line bg-surface py-5">
+    <div className="flex w-59 flex-none flex-col overflow-y-auto border-r border-line bg-surface py-5">
       <div className="mb-3.5 flex items-center gap-2.5 border-b border-line px-5 pb-5">
         <Logo className="size-9" />
         <div>
@@ -184,7 +188,7 @@ export function Sidebar({ userEmail }: { userEmail: string }) {
               .map((item) => {
                 const active = pathname === item.href;
                 return (
-                  <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={navLinkClass}>
+                  <Link key={item.href} href={item.href + filterSearch} aria-current={active ? "page" : undefined} className={navLinkClass}>
                     <svg
                       width="16"
                       height="16"
@@ -206,9 +210,9 @@ export function Sidebar({ userEmail }: { userEmail: string }) {
       </nav>
       <div className="mt-auto border-t border-line px-5 pt-3.5 text-11 text-ink/55">
         {email && <div className="mb-2 break-all">{email}</div>}
-        <button type="button" onClick={handleLogout} className="mb-2.5 cursor-pointer border-none bg-transparent p-0 text-11 text-accent-500">
+        <Button variant="link" onClick={handleLogout} className="mb-2.5 font-sans text-11 font-normal hover:text-accent-500">
           Sign out
-        </button>
+        </Button>
       </div>
     </div>
   );

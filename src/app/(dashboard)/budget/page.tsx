@@ -1,11 +1,10 @@
-"use client";
-
-import { useDashboardData } from "@/lib/finance-context";
+import { getBudgetPage } from "@/lib/page-data";
+import { toSearchParams } from "@/lib/table-params";
 import { StatCard } from "@/components/StatCard";
 import { BudgetTable } from "@/components/BudgetTable";
 
-export default function BudgetPage() {
-  const data = useDashboardData();
+export default async function BudgetPage({ searchParams }: PageProps<"/budget">) {
+  const data = await getBudgetPage(toSearchParams(await searchParams));
 
   return (
     <div>
@@ -14,7 +13,7 @@ export default function BudgetPage() {
         <StatCard label="Actual spend" value={data.totalActualDisplay} />
         <StatCard label="Remaining" value={data.totalRemainingDisplay} tinted />
       </div>
-      <BudgetTable rows={data.budgetRows} monthsInRangeLabel={data.monthsInRangeLabel} />
+      <BudgetTable rows={data.rows} monthsInRangeLabel={data.monthsInRangeLabel} />
     </div>
   );
 }

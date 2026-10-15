@@ -1,11 +1,16 @@
 "use client";
 
-import { useFinance, useDashboardData } from "@/lib/finance-context";
-import { DialogOverlay, dialogTitleClass, fieldLabelClass, inputClass } from "./DialogOverlay";
+import { useId } from "react";
+import { useFinance, useLookups } from "@/lib/finance-context";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { DialogOverlay } from "./DialogOverlay";
 
 export function BudgetDialog() {
   const { submitBudget } = useFinance();
-  const { editingBudget, expenseCategoryOptions } = useDashboardData();
+  const { editingBudget, expenseCategoryOptions } = useLookups();
+  const id = useId();
 
   function handleSubmit(fd: FormData) {
     return submitBudget({
@@ -15,39 +20,36 @@ export function BudgetDialog() {
   }
 
   return (
-    <DialogOverlay className="max-w-105" onSubmit={handleSubmit}>
-      <div className={dialogTitleClass}>{editingBudget ? "Edit budget" : "Add budget category"}</div>
-
-      <div>
-        <label className={fieldLabelClass}>Category</label>
-        <select
+    <DialogOverlay title={editingBudget ? "Edit budget" : "Add budget category"} className="max-w-105" onSubmit={handleSubmit}>
+      <Field>
+        <FieldLabel htmlFor={`${id}-category`}>Category</FieldLabel>
+        <NativeSelect
+          id={`${id}-category`}
           name="categoryId"
           defaultValue={editingBudget ? editingBudget.categoryId : expenseCategoryOptions[0]?.id}
           disabled={!!editingBudget}
           required
-          className={inputClass}
         >
           {expenseCategoryOptions.map((cat) => (
-            <option key={cat.id} value={cat.id}>
+            <NativeSelectOption key={cat.id} value={cat.id}>
               {cat.name}
-            </option>
+            </NativeSelectOption>
           ))}
-        </select>
-      </div>
+        </NativeSelect>
+      </Field>
 
-      <div>
-        <label className={fieldLabelClass}>Monthly target</label>
-        <input
+      <Field>
+        <FieldLabel htmlFor={`${id}-target`}>Monthly target</FieldLabel>
+        <Input
+          id={`${id}-target`}
           type="number"
           step="1"
           min="0"
           name="target"
           defaultValue={editingBudget ? editingBudget.target : ""}
           required
-          className={inputClass}
         />
-      </div>
-
+      </Field>
     </DialogOverlay>
   );
 }

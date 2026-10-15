@@ -1,11 +1,10 @@
-"use client";
-
-import { useDashboardData } from "@/lib/finance-context";
+import { getInvoicesPage } from "@/lib/page-data";
+import { toSearchParams } from "@/lib/table-params";
 import { StatCard } from "@/components/StatCard";
 import { InvoicesTable } from "@/components/InvoicesTable";
 
-export default function InvoicesPage() {
-  const data = useDashboardData();
+export default async function InvoicesPage({ searchParams }: PageProps<"/invoices">) {
+  const data = await getInvoicesPage(toSearchParams(await searchParams));
 
   return (
     <div>
@@ -14,7 +13,7 @@ export default function InvoicesPage() {
         <StatCard label="Overdue" value={data.overdueCountDisplay} />
         <StatCard label="Paid this period" value={data.paidDisplay} tinted />
       </div>
-      <InvoicesTable rows={data.invoicesList} />
+      <InvoicesTable rows={data.rows} total={data.total} query={data.query} />
     </div>
   );
 }

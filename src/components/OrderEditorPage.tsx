@@ -1,12 +1,17 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { useDashboardData, useFinance } from "@/lib/finance-context";
+import { XIcon } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { useLookups, useFinance, withDateFilter } from "@/lib/finance-context";
 import { orderTotals, roundMoney } from "@/lib/calculations";
-import { cx } from "@/lib/cx";
-import { fmtMoney } from "@/lib/format";
-import { TODAY } from "@/lib/mock-data";
+import { cn } from "@/lib/utils";
+import { fmtMoney, todayISO } from "@/lib/format";
 import type { Order, OrderStatus } from "@/lib/types";
 import { Panel } from "./Panel";
 
@@ -19,17 +24,20 @@ interface ItemDraft {
 
 const itemGridClass = "grid grid-cols-[minmax(0,1fr)_4.5rem_7.5rem_1.75rem] items-center gap-2";
 const summaryRowClass = "flex justify-between text-13";
+const readOnlyValueClass = "flex min-h-9 items-center border border-line bg-surface px-2.5 py-1.5 text-14 text-ink/60";
 const toNumber = (v: string) => parseFloat(v) || 0;
 
 function buildItemDrafts(order: Order | null): ItemDraft[] {
     return order
-        ? order.items.map((item) => ({ id: item.id, productId: item.productId, quantity: String(item.quantity), subTotal: String(item.subTotal) }))
+        ? order.items.map((item) => ({ id: item.id, productId: item.variantId, quantity: String(item.quantity), subTotal: String(item.subTotal) }))
         : [{ id: crypto.randomUUID(), productId: "", quantity: "1", subTotal: "" }];
 }
 
-export function OrderEditorPage({ mode, orderId }: { mode: "new" | "edit"; orderId?: string }) {
+// order is loaded by the page on the server; null when new, or when the id matched nothing.
+export function OrderEditorPage({ mode, order }: { mode: "new" | "edit"; order: Order | null }) {
     const router = useRouter();
-    const { submitOrder, state } = useFinance();
+    const fieldId = useId();
+    const { submitOrder } = useFinance();
     const {
         customerOptions,
         orderProductOptions,
@@ -38,8 +46,7 @@ export function OrderEditorPage({ mode, orderId }: { mode: "new" | "edit"; order
         defaultPaymentCategoryId,
         deliveryProviderOptions,
         paymentMethodOptions,
-    } = useDashboardData();
-    const order = useMemo(() => (mode === "edit" && orderId ? state.orders.find((item) => item.id === orderId) ?? null : null), [mode, orderId, state.orders]);
+    } = useLookups();
 
     const [items, setItems] = useState<ItemDraft[]>(() => buildItemDrafts(order));
     const [deliveryCharge, setDeliveryCharge] = useState(order ? String(order.deliveryCharge) : "0");
@@ -84,14 +91,13 @@ export function OrderEditorPage({ mode, orderId }: { mode: "new" | "edit"; order
 
         const formData = new FormData(event.currentTarget);
         try {
-            await submitOrder({
-                id: order?.id,
+            const problem = await submitOrder({
                 customerId: String(formData.get("customerId") || ""),
                 orderDate: String(formData.get("orderDate") || ""),
                 status: String(formData.get("status")) as OrderStatus,
                 items: items.map((item) => ({
                     id: item.id,
-                    productId: item.productId,
+                    variantId: item.productId,
                     quantity: parseInt(item.quantity, 10) || 0,
                     subTotal: roundMoney(toNumber(item.subTotal)),
                 })),
@@ -108,9 +114,13 @@ export function OrderEditorPage({ mode, orderId }: { mode: "new" | "edit"; order
                             channelId: String(formData.get("paymentChannelId") || "") || null,
                         }
                         : null,
-            });
-            router.push("/orders");
-            router.refresh();
+            }, order);
+            if (problem) {
+                setError(problem);
+                setPending(false);
+                return;
+            }
+            router.push(withDateFilter("/orders"));
         } catch (err) {
             console.error("Failed to save order", err);
             setError("Couldn't save the order. Check the details and try again.");
@@ -123,9 +133,9 @@ export function OrderEditorPage({ mode, orderId }: { mode: "new" | "edit"; order
             <Panel className="p-6">
                 <div className="font-condensed text-20 font-semibold">Order not found</div>
                 <div className="mt-2 text-13 text-ink/60">That order may have been deleted or the link is stale.</div>
-                <button type="button" onClick={() => router.push("/orders")} className="mt-4 cursor-pointer border border-line px-4 py-2 font-condensed text-14 font-semibold">
+                <Button type="button" variant="outline" onClick={() => router.push(withDateFilter("/orders"))} className="mt-4">
                     Back to orders
-                </button>
+                </Button>
             </Panel>
         );
     }
@@ -146,97 +156,97 @@ export function OrderEditorPage({ mode, orderId }: { mode: "new" | "edit"; order
                         </div>
                     </div>
                     <div className="flex gap-2">
-                        <button type="button" onClick={() => router.push("/orders")} className="cursor-pointer border border-line bg-transparent px-4 py-2 font-condensed text-14 font-semibold">
+                        <Button type="button" variant="outline" onClick={() => router.push(withDateFilter("/orders"))}>
                             Cancel
-                        </button>
-                        <button type="submit" disabled={pending} className="cursor-pointer border border-accent-500 bg-accent-500 px-4 py-2 font-condensed text-14 font-semibold text-canvas disabled:cursor-default disabled:opacity-70">
+                        </Button>
+                        <Button type="submit" disabled={pending}>
                             {pending ? "Saving…" : "Save order"}
-                        </button>
+                        </Button>
                     </div>
                 </div>
 
                 <fieldset disabled={pending} className="flex min-w-0 flex-col gap-3.5">
                     <div className="grid grid-cols-2 gap-3">
                         {mode === "edit" && order && (
-                            <div>
-                                <label className="mb-1.25 block text-12 text-ink/70">Order number</label>
-                                <div className={cx("min-h-9 border border-line bg-surface px-2.5 py-1.5 text-14 text-ink/60", "flex items-center")}>{order.orderNumber}</div>
-                            </div>
+                            <Field>
+                                <FieldLabel>Order number</FieldLabel>
+                                <div className={readOnlyValueClass}>{order.orderNumber}</div>
+                            </Field>
                         )}
-                        <div>
-                            <label className="mb-1.25 block text-12 text-ink/70">Order date</label>
-                            <input type="date" name="orderDate" defaultValue={order ? order.orderDate : TODAY} required className="min-h-9 w-full border border-line bg-surface px-2.5 py-1.5 text-14" />
-                        </div>
+                        <Field>
+                            <FieldLabel htmlFor={`${fieldId}-date`}>Order date</FieldLabel>
+                            <Input id={`${fieldId}-date`} type="date" name="orderDate" defaultValue={order ? order.orderDate : todayISO()} required />
+                        </Field>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
-                        <div>
-                            <label className="mb-1.25 block text-12 text-ink/70">Customer</label>
-                            <select name="customerId" defaultValue={order?.customerId ?? ""} required className="min-h-9 w-full border border-line bg-surface px-2.5 py-1.5 text-14">
-                                <option value="" disabled>
+                        <Field>
+                            <FieldLabel htmlFor={`${fieldId}-customer`}>Customer</FieldLabel>
+                            <NativeSelect id={`${fieldId}-customer`} name="customerId" defaultValue={order?.customerId ?? ""} required>
+                                <NativeSelectOption value="" disabled>
                                     Choose a customer…
-                                </option>
+                                </NativeSelectOption>
                                 {customerOptions.map((customer) => (
-                                    <option key={customer.id} value={customer.id}>
+                                    <NativeSelectOption key={customer.id} value={customer.id}>
                                         {customer.name}
-                                    </option>
+                                    </NativeSelectOption>
                                 ))}
-                            </select>
-                            {customerOptions.length === 0 && <div className="mt-1 text-11 text-ink/60">Add a customer first, on the Customers page.</div>}
-                        </div>
-                        <div>
-                            <label className="mb-1.25 block text-12 text-ink/70">Order status</label>
-                            <select name="status" defaultValue={order ? order.status : "processing"} className="min-h-9 w-full border border-line bg-surface px-2.5 py-1.5 text-14">
-                                <option value="processing">Processing</option>
-                                <option value="ready_for_delivery">Ready for delivery</option>
-                                <option value="out_for_delivery">Out for delivery</option>
-                                <option value="delivered">Delivered</option>
-                            </select>
-                        </div>
+                            </NativeSelect>
+                            {customerOptions.length === 0 && <FieldDescription>Add a customer first, on the Customers page.</FieldDescription>}
+                        </Field>
+                        <Field>
+                            <FieldLabel htmlFor={`${fieldId}-status`}>Order status</FieldLabel>
+                            <NativeSelect id={`${fieldId}-status`} name="status" defaultValue={order ? order.status : "processing"}>
+                                <NativeSelectOption value="processing">Processing</NativeSelectOption>
+                                <NativeSelectOption value="ready_for_delivery">Ready for delivery</NativeSelectOption>
+                                <NativeSelectOption value="out_for_delivery">Out for delivery</NativeSelectOption>
+                                <NativeSelectOption value="delivered">Delivered</NativeSelectOption>
+                            </NativeSelect>
+                        </Field>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
-                        <div>
-                            <label className="mb-1.25 block text-12 text-ink/70">Delivery location (optional)</label>
-                            <input
+                        <Field>
+                            <FieldLabel htmlFor={`${fieldId}-location`}>Delivery location (optional)</FieldLabel>
+                            <Input
+                                id={`${fieldId}-location`}
                                 type="text"
                                 name="deliveryLocation"
                                 defaultValue={order?.deliveryLocation ?? ""}
-                                className="min-h-9 w-full border border-line bg-surface px-2.5 py-1.5 text-14"
                                 placeholder="Street, area, or landmark"
                             />
-                        </div>
-                        <div>
-                            <label className="mb-1.25 block text-12 text-ink/70">Delivery provider (optional)</label>
-                            <select name="deliveryProviderId" defaultValue={order?.deliveryProviderId ?? ""} className="min-h-9 w-full border border-line bg-surface px-2.5 py-1.5 text-14">
-                                <option value="">No provider</option>
+                        </Field>
+                        <Field>
+                            <FieldLabel htmlFor={`${fieldId}-provider`}>Delivery provider (optional)</FieldLabel>
+                            <NativeSelect id={`${fieldId}-provider`} name="deliveryProviderId" defaultValue={order?.deliveryProviderId ?? ""}>
+                                <NativeSelectOption value="">No provider</NativeSelectOption>
                                 {deliveryProviderOptions.map((provider) => (
-                                    <option key={provider.id} value={provider.id}>
+                                    <NativeSelectOption key={provider.id} value={provider.id}>
                                         {provider.name}
-                                    </option>
+                                    </NativeSelectOption>
                                 ))}
-                            </select>
-                            {deliveryProviderOptions.length === 0 && <div className="mt-1 text-11 text-ink/60">No providers yet. Add one on the Delivery providers page.</div>}
-                        </div>
+                            </NativeSelect>
+                            {deliveryProviderOptions.length === 0 && <FieldDescription>No providers yet. Add one on the Delivery providers page.</FieldDescription>}
+                        </Field>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
-                        <div>
-                            <label className="mb-1.25 block text-12 text-ink/70">Payment method (optional)</label>
-                            <select name="paymentMethodId" defaultValue={order?.paymentMethodId ?? ""} className="min-h-9 w-full border border-line bg-surface px-2.5 py-1.5 text-14">
-                                <option value="">No method</option>
+                        <Field>
+                            <FieldLabel htmlFor={`${fieldId}-method`}>Payment method (optional)</FieldLabel>
+                            <NativeSelect id={`${fieldId}-method`} name="paymentMethodId" defaultValue={order?.paymentMethodId ?? ""}>
+                                <NativeSelectOption value="">No method</NativeSelectOption>
                                 {paymentMethodOptions.map((method) => (
-                                    <option key={method.id} value={method.id}>
+                                    <NativeSelectOption key={method.id} value={method.id}>
                                         {method.name}
-                                    </option>
+                                    </NativeSelectOption>
                                 ))}
-                            </select>
-                            {paymentMethodOptions.length === 0 && <div className="mt-1 text-11 text-ink/60">No methods yet. Add one on the Payment methods page.</div>}
-                        </div>
+                            </NativeSelect>
+                            {paymentMethodOptions.length === 0 && <FieldDescription>No methods yet. Add one on the Payment methods page.</FieldDescription>}
+                        </Field>
                     </div>
 
                     <div>
-                        <div className={cx(itemGridClass, "mb-1.25")}>
+                        <div className={cn(itemGridClass, "mb-1.25")}>
                             <span className="text-12 text-ink/70">Product</span>
                             <span className="text-12 text-ink/70">Qty</span>
                             <span className="text-12 text-ink/70">Sub-total (Rs)</span>
@@ -247,23 +257,22 @@ export function OrderEditorPage({ mode, orderId }: { mode: "new" | "edit"; order
                                 const takenElsewhere = new Set(items.filter((other) => other.id !== item.id).map((other) => other.productId));
                                 return (
                                     <div key={item.id} className={itemGridClass}>
-                                        <select
+                                        <NativeSelect
                                             aria-label="Product"
                                             value={item.productId}
                                             onChange={(event) => updateItem(item.id, { productId: event.target.value })}
                                             required
-                                            className="min-h-9 w-full border border-line bg-surface px-2.5 py-1.5 text-14"
                                         >
-                                            <option value="">Choose a product…</option>
+                                            <NativeSelectOption value="">Choose a product…</NativeSelectOption>
                                             {orderProductOptions
                                                 .filter((product) => product.id === item.productId || !takenElsewhere.has(product.id))
                                                 .map((product) => (
-                                                    <option key={product.id} value={product.id}>
+                                                    <NativeSelectOption key={product.id} value={product.id}>
                                                         {product.label} — {fmtMoney(product.price)}
-                                                    </option>
+                                                    </NativeSelectOption>
                                                 ))}
-                                        </select>
-                                        <input
+                                        </NativeSelect>
+                                        <Input
                                             type="number"
                                             aria-label="Quantity"
                                             min="1"
@@ -271,9 +280,8 @@ export function OrderEditorPage({ mode, orderId }: { mode: "new" | "edit"; order
                                             value={item.quantity}
                                             onChange={(event) => updateItem(item.id, { quantity: event.target.value })}
                                             required
-                                            className="min-h-9 w-full border border-line bg-surface px-2.5 py-1.5 text-14"
                                         />
-                                        <input
+                                        <Input
                                             type="number"
                                             aria-label="Sub-total"
                                             min="0"
@@ -281,54 +289,54 @@ export function OrderEditorPage({ mode, orderId }: { mode: "new" | "edit"; order
                                             value={item.subTotal}
                                             onChange={(event) => updateItem(item.id, { subTotal: event.target.value })}
                                             required
-                                            className="min-h-9 w-full border border-line bg-surface px-2.5 py-1.5 text-14"
                                         />
-                                        <button
+                                        <Button
                                             type="button"
+                                            variant="outline"
+                                            size="icon-sm"
                                             aria-label="Remove item"
                                             onClick={() => removeItem(item.id)}
                                             disabled={items.length === 1}
-                                            className="inline-flex size-7 cursor-pointer items-center justify-center border border-line bg-transparent p-0 disabled:cursor-default disabled:opacity-40"
+                                            className="disabled:opacity-40"
                                         >
-                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                                                <path d="M18 6 6 18" />
-                                                <path d="m6 6 12 12" />
-                                            </svg>
-                                        </button>
+                                            <XIcon strokeWidth={1.5} className="size-3" />
+                                        </Button>
                                     </div>
                                 );
                             })}
                         </div>
-                        <button
+                        <Button
                             type="button"
+                            variant="link"
                             onClick={addItem}
                             disabled={items.length >= orderProductOptions.length}
-                            className="mt-2 cursor-pointer border-none bg-transparent p-0 font-condensed text-13 font-semibold text-accent-500 disabled:cursor-default disabled:opacity-50"
+                            className="mt-2 disabled:opacity-50"
                         >
                             + Add item
-                        </button>
-                        {orderProductOptions.length === 0 && <div className="mt-1 text-11 text-ink/60">Add products first, on the Products page.</div>}
+                        </Button>
+                        {orderProductOptions.length === 0 && <FieldDescription className="mt-1">Add products first, on the Products page.</FieldDescription>}
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
-                        <div>
-                            <label className="mb-1.25 block text-12 text-ink/70">Delivery charge (Rs)</label>
-                            <input
+                        <Field>
+                            <FieldLabel htmlFor={`${fieldId}-delivery`}>Delivery charge (Rs)</FieldLabel>
+                            <Input
+                                id={`${fieldId}-delivery`}
                                 type="number"
                                 min="0"
                                 step="0.01"
                                 value={deliveryCharge}
                                 onChange={(event) => setDeliveryCharge(event.target.value)}
                                 required
-                                className="min-h-9 w-full border border-line bg-surface px-2.5 py-1.5 text-14"
                             />
-                        </div>
-                        <div>
-                            <label className="mb-1.25 block text-12 text-ink/70">{summaryPaidLabel} (Rs)</label>
+                        </Field>
+                        <Field>
+                            <FieldLabel htmlFor={`${fieldId}-paid`}>{summaryPaidLabel} (Rs)</FieldLabel>
                             {mode === "edit" ? (
-                                <div className="min-h-9 flex items-center border border-line bg-surface px-2.5 py-1.5 text-14 text-ink/60">{fmtMoney(order?.amountPaid ?? 0)}</div>
+                                <div className={readOnlyValueClass}>{fmtMoney(order?.amountPaid ?? 0)}</div>
                             ) : (
-                                <input
+                                <Input
+                                    id={`${fieldId}-paid`}
                                     type="number"
                                     min="0"
                                     max={totals.totalPrice}
@@ -336,40 +344,39 @@ export function OrderEditorPage({ mode, orderId }: { mode: "new" | "edit"; order
                                     value={amountPaidNow}
                                     onChange={(event) => setAmountPaidNow(event.target.value)}
                                     required
-                                    className="min-h-9 w-full border border-line bg-surface px-2.5 py-1.5 text-14"
                                 />
                             )}
-                        </div>
+                        </Field>
                     </div>
 
                     {mode === "new" && paidValue > 0 && (
                         <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <label className="mb-1.25 block text-12 text-ink/70">Payment income category</label>
-                                <select name="paymentCategoryId" defaultValue={defaultPaymentCategoryId} required className="min-h-9 w-full border border-line bg-surface px-2.5 py-1.5 text-14">
+                            <Field>
+                                <FieldLabel htmlFor={`${fieldId}-pay-category`}>Payment income category</FieldLabel>
+                                <NativeSelect id={`${fieldId}-pay-category`} name="paymentCategoryId" defaultValue={defaultPaymentCategoryId} required>
                                     {incomeCategoryOptions.map((category) => (
-                                        <option key={category.id} value={category.id}>
+                                        <NativeSelectOption key={category.id} value={category.id}>
                                             {category.name}
-                                        </option>
+                                        </NativeSelectOption>
                                     ))}
-                                </select>
-                            </div>
-                            <div>
-                                <label className="mb-1.25 block text-12 text-ink/70">Payment channel (optional)</label>
-                                <select name="paymentChannelId" defaultValue="" className="min-h-9 w-full border border-line bg-surface px-2.5 py-1.5 text-14">
-                                    <option value="">No channel</option>
+                                </NativeSelect>
+                            </Field>
+                            <Field>
+                                <FieldLabel htmlFor={`${fieldId}-pay-channel`}>Payment channel (optional)</FieldLabel>
+                                <NativeSelect id={`${fieldId}-pay-channel`} name="paymentChannelId" defaultValue="">
+                                    <NativeSelectOption value="">No channel</NativeSelectOption>
                                     {incomeChannelOptions.map((channel) => (
-                                        <option key={channel.id} value={channel.id}>
+                                        <NativeSelectOption key={channel.id} value={channel.id}>
                                             {channel.name}
-                                        </option>
+                                        </NativeSelectOption>
                                     ))}
-                                </select>
-                            </div>
-                            <div className="col-span-2 mt-0 text-11 text-ink/60">Recorded as an income transaction dated the order date.</div>
+                                </NativeSelect>
+                            </Field>
+                            <FieldDescription className="col-span-2">Recorded as an income transaction dated the order date.</FieldDescription>
                         </div>
                     )}
 
-                    {error && <div role="alert" className="text-13 text-error">{error}</div>}
+                    {error && <FieldError>{error}</FieldError>}
                 </fieldset>
             </Panel>
 
@@ -384,7 +391,7 @@ export function OrderEditorPage({ mode, orderId }: { mode: "new" | "edit"; order
                         <span className="text-ink/60">Delivery</span>
                         <span>{fmtMoney(toNumber(deliveryCharge))}</span>
                     </div>
-                    <div className={cx(summaryRowClass, "font-semibold")}>
+                    <div className={cn(summaryRowClass, "font-semibold")}>
                         <span>Total</span>
                         <span>{fmtMoney(totals.totalPrice)}</span>
                     </div>
@@ -396,11 +403,17 @@ export function OrderEditorPage({ mode, orderId }: { mode: "new" | "edit"; order
                         <span className="text-ink/60">Balance due</span>
                         <span>{fmtMoney(balanceDue)}</span>
                     </div>
-                    <div className={cx(summaryRowClass, "items-center")}>
+                    <div className={cn(summaryRowClass, "items-center")}>
                         <span className="text-ink/60">Payment status</span>
-                        <span className={cx("px-2 py-0.75 text-11", totals.paymentStatus === "paid" ? "bg-accent-50 text-accent-700" : "border border-accent-800 text-accent-800")}>
-                            {totals.paymentStatus === "paid" ? "Paid" : "Partially paid"}
-                        </span>
+                        {totals.paymentStatus === "paid" ? (
+                            <Badge variant="secondary" className="px-2 py-0.75 text-11">
+                                Paid
+                            </Badge>
+                        ) : (
+                            <Badge variant="outline" className="border-accent-800 px-2 py-0.75 text-11 text-accent-800">
+                                Partially paid
+                            </Badge>
+                        )}
                     </div>
                 </div>
             </Panel>

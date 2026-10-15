@@ -1,12 +1,17 @@
 "use client";
 
-import { useFinance, useDashboardData } from "@/lib/finance-context";
-import { TODAY } from "@/lib/mock-data";
-import { DialogOverlay, dialogTitleClass, fieldLabelClass, inputClass } from "./DialogOverlay";
+import { useId } from "react";
+import { useFinance, useLookups } from "@/lib/finance-context";
+import { todayISO } from "@/lib/format";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { DialogOverlay } from "./DialogOverlay";
 
 export function InvoiceDialog() {
   const { submitInvoice } = useFinance();
-  const { editingInvoice, customerOptions } = useDashboardData();
+  const { editingInvoice, customerOptions } = useLookups();
+  const id = useId();
 
   function handleSubmit(fd: FormData) {
     return submitInvoice({
@@ -19,62 +24,61 @@ export function InvoiceDialog() {
   }
 
   return (
-    <DialogOverlay className="max-w-110" onSubmit={handleSubmit}>
-      <div className={dialogTitleClass}>{editingInvoice ? "Edit invoice" : "New invoice"}</div>
-
-      <div>
-        <label className={fieldLabelClass}>Customer (optional)</label>
-        <select name="customerId" defaultValue={editingInvoice?.customerId ?? ""} className={inputClass}>
-          <option value="">No customer</option>
+    <DialogOverlay title={editingInvoice ? "Edit invoice" : "New invoice"} className="max-w-110" onSubmit={handleSubmit}>
+      <Field>
+        <FieldLabel htmlFor={`${id}-customer`}>Customer (optional)</FieldLabel>
+        <NativeSelect id={`${id}-customer`} name="customerId" defaultValue={editingInvoice?.customerId ?? ""}>
+          <NativeSelectOption value="">No customer</NativeSelectOption>
           {customerOptions.map((c) => (
-            <option key={c.id} value={c.id}>
+            <NativeSelectOption key={c.id} value={c.id}>
               {c.name}
-            </option>
+            </NativeSelectOption>
           ))}
-        </select>
-      </div>
+        </NativeSelect>
+      </Field>
 
       <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className={fieldLabelClass}>Issue date</label>
-          <input
+        <Field>
+          <FieldLabel htmlFor={`${id}-issue`}>Issue date</FieldLabel>
+          <Input
+            id={`${id}-issue`}
             type="date"
             name="issueDate"
-            defaultValue={editingInvoice ? editingInvoice.issueDate : TODAY}
+            defaultValue={editingInvoice ? editingInvoice.issueDate : todayISO()}
             required
-            className={inputClass}
           />
-        </div>
-        <div>
-          <label className={fieldLabelClass}>Due date</label>
-          <input
-            type="date"
-            name="dueDate"
-            defaultValue={editingInvoice ? editingInvoice.dueDate : TODAY}
-            required
-            className={inputClass}
-          />
-        </div>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor={`${id}-due`}>Due date</FieldLabel>
+          <Input id={`${id}-due`} type="date" name="dueDate" defaultValue={editingInvoice ? editingInvoice.dueDate : todayISO()} required />
+        </Field>
       </div>
 
-      <div>
-        <label className={fieldLabelClass}>Amount</label>
-        <input
+      <Field>
+        <FieldLabel htmlFor={`${id}-amount`}>Amount</FieldLabel>
+        <Input
+          id={`${id}-amount`}
           type="number"
           step="0.01"
           min="0"
           name="amount"
           defaultValue={editingInvoice ? editingInvoice.amount : ""}
           required
-          className={inputClass}
         />
-      </div>
+      </Field>
 
-      <label className="inline-flex cursor-pointer items-center gap-2 text-14">
-        <input type="checkbox" name="paid" defaultChecked={editingInvoice ? editingInvoice.paid : false} className="size-4" />
-        Paid
-      </label>
-
+      <Field orientation="horizontal" className="w-fit">
+        <input
+          id={`${id}-paid`}
+          type="checkbox"
+          name="paid"
+          defaultChecked={editingInvoice ? editingInvoice.paid : false}
+          className="size-4 cursor-pointer"
+        />
+        <FieldLabel htmlFor={`${id}-paid`} className="cursor-pointer text-14 text-foreground">
+          Paid
+        </FieldLabel>
+      </Field>
     </DialogOverlay>
   );
 }

@@ -1,14 +1,19 @@
-import { flexRender, type ColumnDef } from "@tanstack/react-table";
+"use client";
+
+import type { ColumnDef } from "@tanstack/react-table";
 import { useMemo } from "react";
-import { cx } from "@/lib/cx";
+import { cn } from "@/lib/utils";
+import type { TableQuery } from "@/lib/table-params";
+import type { OrderStatus, PaymentTarget } from "@/lib/types";
 import { Panel } from "./Panel";
 import { DeleteButton, EditButton } from "./IconButton";
-import { useFinance } from "@/lib/finance-context";
-import { useDataTable } from "@/lib/use-data-table";
+import { useFinance, useOptimisticRows } from "@/lib/finance-context";
+import { useServerDataTable } from "@/lib/use-data-table";
 import { SortableHeader } from "./SortableHeader";
 import { TablePagination } from "./TablePagination";
+import { DataTable } from "./DataTable";
 
-interface OrderRow {
+export interface OrderRow {
   id: string;
   orderNumber: string;
   orderDate: string;
@@ -27,21 +32,24 @@ interface OrderRow {
   paidDisplay: string;
   dueAmount: number;
   dueDisplay: string | null;
+  orderStatus: OrderStatus;
   status: string;
   statusClass: string;
   paymentStatus: string;
   paymentStatusClass: string;
   nextStepLabel: string | null;
   showRecordPayment: boolean;
+  paymentCount: number;
+  paymentTarget: PaymentTarget;
 }
 
-const thClass = "border-b border-line px-4 py-2.5 text-10 tracking-[0.08em] text-ink/60 uppercase";
-const tdClass = "border-b border-line-soft px-4 py-2.5 align-top";
 const pillClass = "inline-block px-2 py-0.75 text-11 whitespace-nowrap";
 const textButtonClass = "cursor-pointer border-none bg-transparent p-0 font-condensed text-12 font-semibold text-accent-500";
 
-export function OrdersTable({ rows, empty }: { rows: OrderRow[]; empty: boolean }) {
+// The rows are one page from the server; sort and page live in the URL.
+export function OrdersTable({ rows, total, query }: { rows: OrderRow[]; total: number; query: TableQuery }) {
   const { openEditOrder, deleteOrder, advanceOrderStatus, openRecordPayment } = useFinance();
+  const visibleRows = useOptimisticRows(rows);
   const columns = useMemo<ColumnDef<OrderRow>[]>(
     () => [
       {
@@ -68,7 +76,8 @@ export function OrdersTable({ rows, empty }: { rows: OrderRow[]; empty: boolean 
       },
       {
         accessorKey: "itemsSummary",
-        header: ({ header }) => <SortableHeader header={header} title="Items" />,
+        enableSorting: false,
+        header: () => "Items",
         cell: ({ row }) => (
           <div>
             <div>{row.original.itemsSummary}</div>
@@ -101,8 +110,8 @@ export function OrdersTable({ rows, empty }: { rows: OrderRow[]; empty: boolean 
         header: ({ header }) => <SortableHeader header={header} title="Status" />,
         cell: ({ row }) => (
           <div className="flex flex-col items-start gap-1">
-            <span className={cx(pillClass, row.original.statusClass)}>{row.original.status}</span>
-            <span className={cx(pillClass, row.original.paymentStatusClass)}>{row.original.paymentStatus}</span>
+            <span className={cn(pillClass, row.original.statusClass)}>{row.original.status}</span>
+            <span className={cn(pillClass, row.original.paymentStatusClass)}>{row.original.paymentStatus}</span>
           </div>
         ),
       },
@@ -116,19 +125,19 @@ export function OrdersTable({ rows, empty }: { rows: OrderRow[]; empty: boolean 
             <div className="flex items-center justify-end gap-2.5">
               <div className="flex flex-col items-end gap-1">
                 {order.nextStepLabel && (
-                  <button type="button" onClick={() => advanceOrderStatus(order.id)} className={textButtonClass}>
+                  <button type="button" onClick={() => advanceOrderStatus(order)} className={textButtonClass}>
                     {order.nextStepLabel}
                   </button>
                 )}
                 {order.showRecordPayment && (
-                  <button type="button" onClick={() => openRecordPayment(order.id)} className={textButtonClass}>
+                  <button type="button" onClick={() => openRecordPayment(order.paymentTarget)} className={textButtonClass}>
                     Record payment
                   </button>
                 )}
               </div>
               <div>
                 <EditButton onClick={() => openEditOrder(order.id)} />
-                <DeleteButton onClick={() => deleteOrder(order.id)} />
+                <DeleteButton onClick={() => deleteOrder(order)} />
               </div>
             </div>
           );
@@ -137,42 +146,13 @@ export function OrdersTable({ rows, empty }: { rows: OrderRow[]; empty: boolean 
     ],
     [advanceOrderStatus, deleteOrder, openEditOrder, openRecordPayment],
   );
-  const table = useDataTable({ data: rows, columns, initialSorting: [{ id: "orderDate", desc: true }] });
+  const table = useServerDataTable({ data: visibleRows, columns, rowCount: total, query });
 
   return (
     <Panel>
-      <table className="w-full text-13">
-        <thead>
-          {table.getHeaderGroups().map((headerGroup) => (
-            <tr key={headerGroup.id}>
-              {headerGroup.headers.map((header) => {
-                const headerClass = ["totalPrice", "amountPaid", "actions"].includes(header.column.id) ? "text-right" : "text-left";
-                return (
-                  <th key={header.id} className={cx(thClass, headerClass)}>
-                    {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
-                  </th>
-                );
-              })}
-            </tr>
-          ))}
-        </thead>
-        <tbody>
-          {table.getRowModel().rows.map((row) => (
-            <tr key={row.id}>
-              {row.getVisibleCells().map((cell) => {
-                const cellClass = ["totalPrice", "amountPaid", "actions"].includes(cell.column.id) ? "text-right" : "";
-                return (
-                  <td key={cell.id} className={cx(tdClass, cellClass)}>
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <DataTable table={table} columnClasses={{ totalPrice: "text-right", amountPaid: "text-right", actions: "text-right" }} cellClassName="align-top" />
       <TablePagination table={table} />
-      {empty && <div className="px-4 py-6 text-13 text-ink/55">No orders in this date range.</div>}
+      {total === 0 && <div className="px-4 py-6 text-13 text-ink/55">No orders in this date range.</div>}
     </Panel>
   );
 }

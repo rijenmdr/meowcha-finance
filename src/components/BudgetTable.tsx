@@ -1,12 +1,14 @@
-import { flexRender, type ColumnDef } from "@tanstack/react-table";
+"use client";
+
+import type { ColumnDef } from "@tanstack/react-table";
 import { useMemo } from "react";
-import { cx } from "@/lib/cx";
 import { Panel } from "./Panel";
 import { DeleteButton, EditButton } from "./IconButton";
-import { useFinance } from "@/lib/finance-context";
+import { useFinance, useOptimisticRows } from "@/lib/finance-context";
 import { useDataTable } from "@/lib/use-data-table";
 import { SortableHeader } from "./SortableHeader";
 import { TablePagination } from "./TablePagination";
+import { DataTable } from "./DataTable";
 
 interface BudgetRow {
   id: string;
@@ -21,11 +23,10 @@ interface BudgetRow {
   overAmountDisplay: string;
 }
 
-const thClass = "border-b border-line px-4 py-2.5 text-10 tracking-[0.08em] text-ink/60 uppercase";
-const tdClass = "border-b border-line-soft px-4 py-2.5";
 
 export function BudgetTable({ rows, monthsInRangeLabel }: { rows: BudgetRow[]; monthsInRangeLabel: string }) {
   const { openEditBudget, deleteBudget } = useFinance();
+  const visibleRows = useOptimisticRows(rows);
   const columns = useMemo<ColumnDef<BudgetRow>[]>(
     () => [
       {
@@ -83,38 +84,11 @@ export function BudgetTable({ rows, monthsInRangeLabel }: { rows: BudgetRow[]; m
     ],
     [deleteBudget, openEditBudget],
   );
-  const table = useDataTable({ data: rows, columns, initialSorting: [{ id: "category", desc: false }] });
+  const table = useDataTable({ data: visibleRows, columns, initialSorting: [{ id: "category", desc: false }] });
 
   return (
     <Panel>
-      <table className="w-full text-13">
-        <thead>
-          {table.getHeaderGroups().map((headerGroup) => (
-            <tr key={headerGroup.id}>
-              {headerGroup.headers.map((header) => {
-                const headerClass = ["target", "actual", "actions"].includes(header.column.id) ? "text-right" : "text-left";
-                return (
-                  <th key={header.id} className={cx(thClass, headerClass, header.column.id === "progress" ? "w-45" : "")}>{header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}</th>
-                );
-              })}
-            </tr>
-          ))}
-        </thead>
-        <tbody>
-          {table.getRowModel().rows.map((row) => (
-            <tr key={row.id}>
-              {row.getVisibleCells().map((cell) => {
-                const cellClass = ["target", "actual", "actions"].includes(cell.column.id) ? "text-right" : "";
-                return (
-                  <td key={cell.id} className={cx(tdClass, cellClass, cell.column.id === "progress" ? "w-45" : "")}>
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <DataTable table={table} columnClasses={{ target: "text-right", actual: "text-right", actions: "text-right", progress: "w-45" }} />
       <TablePagination table={table} />
       <div className="px-4 py-2 text-11 text-ink/55">Targets scale to the selected date range ({monthsInRangeLabel}).</div>
     </Panel>

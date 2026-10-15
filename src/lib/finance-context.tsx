@@ -1,19 +1,23 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
-import { TODAY } from "./mock-data";
-import { addDays, daysBetween, fmtDate, fmtMoney, inRange, monthsBetweenInclusive } from "./format";
 import {
-  buildCategoryBreakdown,
-  buildChartData,
-  buildMonthAgg,
-  deltaBits,
-  orderPaymentTransaction,
-  orderTotals,
-  roundMoney,
-  syncOrderPayments,
-} from "./calculations";
+  createContext,
+  startTransition,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useOptimistic,
+  useRef,
+  useState,
+  useTransition,
+  type ReactNode,
+} from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useConfirmDialog } from "@/components/ConfirmDialog";
+import { dateFilterSearch, fmtMoney, parseDateFilter, pickDateFilterSearch, todayISO, variantLabel } from "./format";
+import { orderTotals, roundMoney } from "./calculations";
+import { INVOICE_STATUS_CLASSES, NEXT_ORDER_STATUS, orderStatusCells } from "./status";
 import {
   deleteBudgetAction,
   deleteCategoryAction,
@@ -38,8 +42,11 @@ import {
   saveProductAction,
   saveSourceAction,
   saveTransactionAction,
+  setOrderStatusAction,
 } from "./actions";
 import type {
+  DateFilter,
+  DatePreset,
   Budget,
   Category,
   Channel,
@@ -47,38 +54,30 @@ import type {
   DeliveryProvider,
   DialogKind,
   Invoice,
+  Lookups,
   Order,
   OrderItem,
   OrderPayment,
   OrderStatus,
-  PaperType,
   PaymentMethod,
-  PaymentStatus,
+  PaymentTarget,
   Product,
+  ProductVariant,
   Source,
   Transaction,
   TxnType,
 } from "./types";
 
+// Only UI state lives here. Records and every total are loaded per page on the
+// server (lib/page-data.ts); the layout passes the small lookup tables in.
+// The records being edited come from the row that opened the dialog.
 interface FinanceState {
-  dateStart: string;
-  dateEnd: string;
-  filterType: "all" | TxnType;
-  filterCategory: string;
   dialog: DialogKind;
   editId: string | null;
   txnFormType: TxnType;
-  transactions: Transaction[];
-  budgets: Budget[];
-  invoices: Invoice[];
-  customers: Customer[];
-  categories: Category[];
-  channels: Channel[];
-  sources: Source[];
-  products: Product[];
-  orders: Order[];
-  deliveryProviders: DeliveryProvider[];
-  paymentMethods: PaymentMethod[];
+  editingTxn: Transaction | null;
+  editingInvoice: Invoice | null;
+  paymentTarget: PaymentTarget | null;
 }
 
 interface TxnSubmitValues {
@@ -127,11 +126,10 @@ interface PaymentMethodSubmitValues {
 }
 
 interface ProductSubmitValues {
+  id?: string;
   name: string;
-  color: string;
-  type: PaperType;
-  quantity: number;
-  price: number;
+  optionNames: string[];
+  variants: ProductVariant[];
 }
 
 interface CustomerSubmitValues {
@@ -143,7 +141,6 @@ interface CustomerSubmitValues {
 }
 
 interface OrderSubmitValues {
-  id?: string;
   customerId: string;
   orderDate: string;
   status: OrderStatus;
@@ -157,21 +154,50 @@ interface OrderSubmitValues {
 
 type PaymentSubmitValues = Omit<OrderPayment, "id">;
 
+// What a delete needs from a table row: the name for the prompt, and the usage
+// counts the server computed, so a delete the DB would reject is explained first.
+interface NamedRow {
+  id: string;
+  name: string;
+}
+
+interface UsedRow extends NamedRow {
+  usageCount: number;
+}
+
+// Rows hidden or patched while a delete or quick edit is in flight. They fall
+// back to the server's rows once the action and the refresh it triggers land,
+// or straight away if the action fails.
+interface OptimisticRows {
+  hidden: ReadonlySet<string>;
+  patches: ReadonlyMap<string, object>;
+}
+
+type OptimisticOp = { kind: "hide"; id: string } | { kind: "patch"; id: string; patch: object };
+
+const NO_OPTIMISTIC_ROWS: OptimisticRows = { hidden: new Set(), patches: new Map() };
+
+function applyOptimisticOp(cur: OptimisticRows, op: OptimisticOp): OptimisticRows {
+  if (op.kind === "hide") return { ...cur, hidden: new Set(cur.hidden).add(op.id) };
+  return { ...cur, patches: new Map(cur.patches).set(op.id, { ...cur.patches.get(op.id), ...op.patch }) };
+}
+
 interface FinanceContextValue {
   state: FinanceState;
+  lookups: Lookups;
+  dateFilter: DateFilter;
+  isNavigating: boolean;
+  optimisticRows: OptimisticRows;
+  // Sets (or with null, removes) URL params, which re-renders the page on the server.
+  setSearch: (patch: Record<string, string | null>, onStart?: () => void) => void;
   setDateStart: (v: string) => void;
   setDateEnd: (v: string) => void;
-  presetMonth: () => void;
-  presetQuarter: () => void;
-  presetYTD: () => void;
-  presetAll: () => void;
-  setFilterType: (v: "all" | TxnType) => void;
-  setFilterCategory: (v: string) => void;
+  setDatePreset: (v: DatePreset) => void;
 
   closeDialog: () => void;
   openAddTxn: () => void;
-  openEditTxn: (id: string) => void;
-  deleteTxn: (id: string) => void;
+  openEditTxn: (txn: Transaction) => void;
+  deleteTxn: (row: { id: string; orderNumber: string | null }) => void;
   setTxnFormType: (t: TxnType) => void;
   submitTxn: (values: TxnSubmitValues) => Promise<void>;
 
@@ -181,221 +207,170 @@ interface FinanceContextValue {
   submitBudget: (values: BudgetSubmitValues) => Promise<void>;
 
   openAddInvoice: () => void;
-  openEditInvoice: (id: string) => void;
+  openEditInvoice: (invoice: Invoice) => void;
   deleteInvoice: (id: string) => void;
-  markInvoicePaid: (id: string) => void;
+  markInvoicePaid: (invoice: Invoice) => void;
   submitInvoice: (values: InvoiceSubmitValues) => Promise<void>;
 
   openAddCustomer: () => void;
   openEditCustomer: (id: string) => void;
-  deleteCustomer: (id: string) => void;
+  deleteCustomer: (row: NamedRow & { orderCount: number }) => void;
   submitCustomer: (values: CustomerSubmitValues) => Promise<void>;
 
   openAddCategory: (type?: TxnType) => void;
   openEditCategory: (id: string) => void;
-  deleteCategory: (id: string) => void;
+  deleteCategory: (row: UsedRow & { budgeted: boolean }) => void;
   submitCategory: (values: CategorySubmitValues) => Promise<void>;
 
   openAddChannel: (type?: TxnType) => void;
   openEditChannel: (id: string) => void;
-  deleteChannel: (id: string) => void;
+  deleteChannel: (row: UsedRow) => void;
   submitChannel: (values: ChannelSubmitValues) => Promise<void>;
 
   openAddSource: () => void;
   openEditSource: (id: string) => void;
-  deleteSource: (id: string) => void;
+  deleteSource: (row: UsedRow) => void;
   submitSource: (values: SourceSubmitValues) => Promise<void>;
 
   openAddDeliveryProvider: () => void;
   openEditDeliveryProvider: (id: string) => void;
-  deleteDeliveryProvider: (id: string) => void;
+  deleteDeliveryProvider: (row: UsedRow) => void;
   submitDeliveryProvider: (values: DeliveryProviderSubmitValues) => Promise<void>;
 
   openAddPaymentMethod: () => void;
   openEditPaymentMethod: (id: string) => void;
-  deletePaymentMethod: (id: string) => void;
+  deletePaymentMethod: (row: UsedRow) => void;
   submitPaymentMethod: (values: PaymentMethodSubmitValues) => Promise<void>;
 
   openAddProduct: () => void;
   openEditProduct: (id: string) => void;
-  deleteProduct: (id: string) => void;
-  submitProduct: (values: ProductSubmitValues) => Promise<void>;
+  deleteProduct: (row: NamedRow & { variantCount: number; orderCount: number }) => void;
+  submitProduct: (values: ProductSubmitValues, variantIdsInUse: string[]) => Promise<string | null>;
 
   openAddOrder: () => void;
   openEditOrder: (id: string) => void;
-  deleteOrder: (id: string) => void;
-  advanceOrderStatus: (id: string) => void;
-  openRecordPayment: (orderId: string) => void;
+  deleteOrder: (row: { id: string; orderNumber: string; paymentCount: number }) => void;
+  advanceOrderStatus: (row: { id: string; orderStatus: OrderStatus }) => void;
+  openRecordPayment: (target: PaymentTarget) => void;
   submitPayment: (values: PaymentSubmitValues) => Promise<void>;
-  submitOrder: (values: OrderSubmitValues) => Promise<void>;
+  submitOrder: (values: OrderSubmitValues, existing: Order | null) => Promise<string | null>;
 }
-
-const STATUS_CLASSES = {
-  Paid: "bg-accent-50 text-accent-700",
-  Overdue: "border border-accent-800 text-accent-800",
-  Outstanding: "border border-ink/30 text-muted",
-} as const;
-
-export const PAPER_TYPE_LABELS: Record<PaperType, string> = { lined: "Lined", blank: "Blank" };
-
-export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
-  processing: "Processing",
-  ready_for_delivery: "Ready for delivery",
-  out_for_delivery: "Out for delivery",
-  delivered: "Delivered",
-};
-
-const ORDER_STATUS_CLASSES: Record<OrderStatus, string> = {
-  processing: "border border-ink/30 text-muted",
-  ready_for_delivery: "bg-mist text-graphite",
-  out_for_delivery: "border border-accent-500 text-accent-700",
-  delivered: "bg-accent-50 text-accent-700",
-};
-
-// The table's one-click step forward, with the button label for that step.
-const NEXT_ORDER_STATUS: Record<OrderStatus, { status: OrderStatus; label: string } | null> = {
-  processing: { status: "ready_for_delivery", label: "Mark ready" },
-  ready_for_delivery: { status: "out_for_delivery", label: "Send out" },
-  out_for_delivery: { status: "delivered", label: "Mark delivered" },
-  delivered: null,
-};
-
-function getAllDataDateBounds(transactions: Transaction[], invoices: Invoice[], orders: Order[]) {
-  const dates = [
-    ...transactions.map((t) => t.date),
-    ...invoices.map((i) => i.issueDate),
-    ...orders.map((o) => o.orderDate),
-  ];
-  if (dates.length === 0) {
-    return { start: "2026-01-01", end: TODAY };
-  }
-  dates.sort((a, b) => a.localeCompare(b));
-  return { start: dates[0]!, end: dates[dates.length - 1]! };
-}
-
-export const PAYMENT_STATUS_LABELS: Record<PaymentStatus, string> = { paid: "Paid", partially_paid: "Partially paid" };
-
-export const PAYMENT_STATUS_CLASSES: Record<PaymentStatus, string> = {
-  paid: "bg-accent-50 text-accent-700",
-  partially_paid: "border border-accent-800 text-accent-800",
-};
 
 const FinanceContext = createContext<FinanceContextValue | null>(null);
 
-interface FinanceProviderProps {
-  children: ReactNode;
-  initialTransactions: Transaction[];
-  initialBudgets: Budget[];
-  initialInvoices: Invoice[];
-  initialCustomers: Customer[];
-  initialCategories: Category[];
-  initialChannels: Channel[];
-  initialSources: Source[];
-  initialProducts: Product[];
-  initialOrders: Order[];
-  initialDeliveryProviders: DeliveryProvider[];
-  initialPaymentMethods: PaymentMethod[];
-}
+const CLOSED_DIALOG = { dialog: null, editId: null, editingTxn: null, editingInvoice: null, paymentTarget: null } as const;
 
-export function FinanceProvider({
-  children,
-  initialTransactions,
-  initialBudgets,
-  initialInvoices,
-  initialCustomers,
-  initialCategories,
-  initialChannels,
-  initialSources,
-  initialProducts,
-  initialOrders,
-  initialDeliveryProviders,
-  initialPaymentMethods,
-}: FinanceProviderProps) {
+export function FinanceProvider({ children, lookups }: { children: ReactNode; lookups: Lookups }) {
   const router = useRouter();
-  const allDataBounds = getAllDataDateBounds(initialTransactions, initialInvoices, initialOrders);
 
   // Random rather than a per-session counter: a counter restarts on every page
   // load, so a new record could reuse (and upsert over) an id saved earlier.
   const uid = () => crypto.randomUUID();
 
-  const [state, setState] = useState<FinanceState>({
-    dateStart: allDataBounds.start,
-    dateEnd: allDataBounds.end,
-    filterType: "all",
-    filterCategory: "all",
-    dialog: null,
-    editId: null,
-    txnFormType: "expense",
-    transactions: initialTransactions,
-    budgets: initialBudgets,
-    invoices: initialInvoices,
-    customers: initialCustomers,
-    categories: initialCategories,
-    channels: initialChannels,
-    sources: initialSources,
-    products: initialProducts,
-    orders: initialOrders,
-    deliveryProviders: initialDeliveryProviders,
-    paymentMethods: initialPaymentMethods,
-  });
+  const { confirm, notify, dialog: confirmDialog } = useConfirmDialog();
 
-  // Mutation callbacks below are memoized with an empty deps array, so they
-  // can't read `state` from their closure (it would be frozen at mount).
-  // This ref mirrors the latest state on every render instead, so a callback
-  // can read current records synchronously before persisting to Supabase.
+  const [state, setState] = useState<FinanceState>({ ...CLOSED_DIALOG, txnFormType: "expense" });
+
+  // Mutation callbacks below are memoized, so they can't read `state` or
+  // `lookups` from their closure (it would be frozen at mount). These refs
+  // mirror the latest values on every render instead.
   const stateRef = useRef(state);
+  const lookupsRef = useRef(lookups);
   useEffect(() => {
     stateRef.current = state;
-  }, [state]);
+    lookupsRef.current = lookups;
+  }, [state, lookups]);
 
-  const setDateStart = useCallback((v: string) => setState((s) => ({ ...s, dateStart: v })), []);
-  const setDateEnd = useCallback((v: string) => setState((s) => ({ ...s, dateEnd: v })), []);
-  const presetMonth = useCallback(() => setState((s) => ({ ...s, dateStart: "2026-09-01", dateEnd: TODAY })), []);
-  const presetQuarter = useCallback(() => setState((s) => ({ ...s, dateStart: "2026-07-01", dateEnd: TODAY })), []);
-  const presetYTD = useCallback(() => setState((s) => ({ ...s, dateStart: "2026-01-01", dateEnd: TODAY })), []);
-  const presetAll = useCallback(
-    () =>
-      setState((s) => {
-        const bounds = getAllDataDateBounds(s.transactions, s.invoices, s.orders);
-        return { ...s, dateStart: bounds.start, dateEnd: bounds.end };
-      }),
-    [],
+  // Every URL change is a navigation the server renders, so it runs in a
+  // transition: the current page stays up (dimmed) until the new one arrives.
+  const [isNavigating, startNavigation] = useTransition();
+  const navigate = useCallback(
+    (search: string, onStart?: () => void) => {
+      startNavigation(() => {
+        onStart?.();
+        router.replace(window.location.pathname + search, { scroll: false });
+      });
+    },
+    [router],
   );
-  // The category list depends on the type, so the selected category may no longer apply.
-  const setFilterType = useCallback((v: "all" | TxnType) => setState((s) => ({ ...s, filterType: v, filterCategory: "all" })), []);
-  const setFilterCategory = useCallback((v: string) => setState((s) => ({ ...s, filterCategory: v })), []);
+  const setSearch = useCallback(
+    (patch: Record<string, string | null>, onStart?: () => void) => {
+      const params = new URLSearchParams(window.location.search);
+      for (const [key, value] of Object.entries(patch)) {
+        if (value === null) params.delete(key);
+        else params.set(key, value);
+      }
+      const query = params.toString();
+      navigate(query ? "?" + query : "", onStart);
+    },
+    [navigate],
+  );
 
-  const closeDialog = useCallback(() => setState((s) => ({ ...s, dialog: null, editId: null })), []);
+  // The filter shows the new value straight away, while the page loads.
+  const searchParams = useSearchParams();
+  const urlDateFilter = useMemo(() => parseDateFilter(searchParams, todayISO()), [searchParams]);
+  const [dateFilter, setOptimisticDateFilter] = useOptimistic(urlDateFilter);
+  const dateFilterRef = useRef(dateFilter);
+  useEffect(() => {
+    dateFilterRef.current = dateFilter;
+  }, [dateFilter]);
+  const writeDateFilter = useCallback(
+    (f: DateFilter) => {
+      dateFilterRef.current = f;
+      navigate(dateFilterSearch(new URLSearchParams(window.location.search), f), () => setOptimisticDateFilter(f));
+    },
+    [navigate, setOptimisticDateFilter],
+  );
+  const setDateStart = useCallback((v: string) => writeDateFilter({ ...dateFilterRef.current, preset: "custom", start: v }), [writeDateFilter]);
+  const setDateEnd = useCallback((v: string) => writeDateFilter({ ...dateFilterRef.current, preset: "custom", end: v }), [writeDateFilter]);
+  // Custom keeps the current range, so the date inputs start from what was shown.
+  const setDatePreset = useCallback(
+    (v: DatePreset) =>
+      writeDateFilter(
+        v === "custom" ? { ...dateFilterRef.current, preset: v } : parseDateFilter(new URLSearchParams({ period: v }), todayISO()),
+      ),
+    [writeDateFilter],
+  );
+
+  const [optimisticRows, applyOptimistic] = useOptimistic(NO_OPTIMISTIC_ROWS, applyOptimisticOp);
+  // Shows a delete or quick edit at once, then runs the action. Its refresh
+  // brings the real rows; a failure only logs, and the row reappears unchanged.
+  const runOptimistic = useCallback(
+    (op: OptimisticOp, action: () => Promise<void>, failure: string) => {
+      startTransition(async () => {
+        applyOptimistic(op);
+        try {
+          await action();
+        } catch (err) {
+          console.error(failure, err);
+        }
+      });
+    },
+    [applyOptimistic],
+  );
+
+  const closeDialog = useCallback(() => setState((s) => ({ ...s, ...CLOSED_DIALOG })), []);
 
   const openAddTxn = useCallback(
-    () => setState((s) => ({ ...s, dialog: "txn", editId: null, txnFormType: "expense" })),
+    () => setState((s) => ({ ...s, ...CLOSED_DIALOG, dialog: "txn", txnFormType: "expense" })),
     [],
   );
   const openEditTxn = useCallback(
-    (id: string) =>
-      setState((s) => {
-        const t = s.transactions.find((x) => x.id === id);
-        return { ...s, dialog: "txn", editId: id, txnFormType: t ? t.type : "expense" };
-      }),
+    (txn: Transaction) => setState((s) => ({ ...s, ...CLOSED_DIALOG, dialog: "txn", editId: txn.id, editingTxn: txn, txnFormType: txn.type })),
     [],
   );
-  const deleteTxn = useCallback((id: string) => {
-    const s = stateRef.current;
-    const t = s.transactions.find((x) => x.id === id);
-    const order = t?.orderId ? s.orders.find((o) => o.id === t.orderId) : undefined;
-    const note = order ? ` It's a payment for ${order.orderNumber}, so that order's amount paid will drop.` : "";
-    if (!window.confirm(`Delete this transaction?${note}`)) return;
-    // The DB trigger recomputes the order's amount_paid; this mirrors it.
-    setState((s) => {
-      const transactions = s.transactions.filter((t) => t.id !== id);
-      return { ...s, transactions, orders: syncOrderPayments(s.orders, transactions) };
-    });
-    deleteTransactionAction(id).catch((err) => console.error("Failed to delete transaction", err));
-  }, []);
+  const deleteTxn = useCallback(
+    async (row: { id: string; orderNumber: string | null }) => {
+      const note = row.orderNumber ? `It's a payment for ${row.orderNumber}, so that order's amount paid will drop.` : undefined;
+      if (!(await confirm({ title: "Delete this transaction?", description: note, confirmLabel: "Delete", destructive: true }))) return;
+      runOptimistic({ kind: "hide", id: row.id }, () => deleteTransactionAction(row.id), "Failed to delete transaction");
+    },
+    [confirm, runOptimistic],
+  );
   const setTxnFormType = useCallback((t: TxnType) => setState((s) => ({ ...s, txnFormType: t })), []);
   const submitTxn = useCallback(async (values: TxnSubmitValues) => {
     const s = stateRef.current;
-    const existing = s.editId ? s.transactions.find((t) => t.id === s.editId) : undefined;
+    const existing = s.editingTxn;
     const rec: Transaction = {
       id: existing?.id ?? uid(),
       date: values.date,
@@ -410,56 +385,60 @@ export function FinanceProvider({
       orderId: s.txnFormType === "income" ? (existing?.orderId ?? null) : null,
     };
     await saveTransactionAction(rec);
-    setState((s) => {
-      const exists = s.transactions.some((t) => t.id === rec.id);
-      const transactions = exists ? s.transactions.map((t) => (t.id === rec.id ? rec : t)) : [...s.transactions, rec];
-      return { ...s, transactions, orders: syncOrderPayments(s.orders, transactions), dialog: null, editId: null };
-    });
+    setState((s) => ({ ...s, ...CLOSED_DIALOG }));
   }, []);
 
-  const openAddBudget = useCallback(() => setState((s) => ({ ...s, dialog: "budget", editId: null })), []);
-  const openEditBudget = useCallback((id: string) => setState((s) => ({ ...s, dialog: "budget", editId: id })), []);
-  const deleteBudget = useCallback((id: string) => {
-    if (!window.confirm("Remove this budget category?")) return;
-    setState((s) => ({ ...s, budgets: s.budgets.filter((b) => b.id !== id) }));
-    deleteBudgetAction(id).catch((err) => console.error("Failed to delete budget", err));
-  }, []);
+  const openAddBudget = useCallback(() => setState((s) => ({ ...s, ...CLOSED_DIALOG, dialog: "budget" })), []);
+  const openEditBudget = useCallback((id: string) => setState((s) => ({ ...s, ...CLOSED_DIALOG, dialog: "budget", editId: id })), []);
+  const deleteBudget = useCallback(
+    async (id: string) => {
+      if (!(await confirm({ title: "Remove this budget category?", confirmLabel: "Remove", destructive: true }))) return;
+      runOptimistic({ kind: "hide", id }, () => deleteBudgetAction(id), "Failed to delete budget");
+    },
+    [confirm, runOptimistic],
+  );
   const submitBudget = useCallback(async (values: BudgetSubmitValues) => {
     const s = stateRef.current;
+    const { budgets } = lookupsRef.current;
     const target = Math.abs(values.target || 0);
     let rec: Budget;
     if (s.editId) {
-      rec = { id: s.editId, categoryId: s.budgets.find((b) => b.id === s.editId)?.categoryId ?? values.categoryId, target };
+      rec = { id: s.editId, categoryId: budgets.find((b) => b.id === s.editId)?.categoryId ?? values.categoryId, target };
     } else {
-      const existing = s.budgets.find((b) => b.categoryId === values.categoryId);
+      const existing = budgets.find((b) => b.categoryId === values.categoryId);
       rec = existing ? { ...existing, target } : { id: uid(), categoryId: values.categoryId, target };
     }
     await saveBudgetAction(rec);
-    setState((s) => {
-      const exists = s.budgets.some((b) => b.id === rec.id);
-      const budgets = exists ? s.budgets.map((b) => (b.id === rec.id ? rec : b)) : [...s.budgets, rec];
-      return { ...s, budgets, dialog: null, editId: null };
-    });
+    setState((s) => ({ ...s, ...CLOSED_DIALOG }));
   }, []);
 
-  const openAddInvoice = useCallback(() => setState((s) => ({ ...s, dialog: "invoice", editId: null })), []);
-  const openEditInvoice = useCallback((id: string) => setState((s) => ({ ...s, dialog: "invoice", editId: id })), []);
-  const deleteInvoice = useCallback((id: string) => {
-    if (!window.confirm("Delete this invoice?")) return;
-    setState((s) => ({ ...s, invoices: s.invoices.filter((i) => i.id !== id) }));
-    deleteInvoiceAction(id).catch((err) => console.error("Failed to delete invoice", err));
-  }, []);
-  const markInvoicePaid = useCallback((id: string) => {
-    const existing = stateRef.current.invoices.find((i) => i.id === id);
-    if (!existing) return;
-    const rec: Invoice = { ...existing, paid: true };
-    setState((s) => ({ ...s, invoices: s.invoices.map((i) => (i.id === id ? rec : i)) }));
-    saveInvoiceAction(rec).catch((err) => console.error("Failed to save invoice", err));
-  }, []);
+  const openAddInvoice = useCallback(() => setState((s) => ({ ...s, ...CLOSED_DIALOG, dialog: "invoice" })), []);
+  const openEditInvoice = useCallback(
+    (invoice: Invoice) => setState((s) => ({ ...s, ...CLOSED_DIALOG, dialog: "invoice", editId: invoice.id, editingInvoice: invoice })),
+    [],
+  );
+  const deleteInvoice = useCallback(
+    async (id: string) => {
+      if (!(await confirm({ title: "Delete this invoice?", confirmLabel: "Delete", destructive: true }))) return;
+      runOptimistic({ kind: "hide", id }, () => deleteInvoiceAction(id), "Failed to delete invoice");
+    },
+    [confirm, runOptimistic],
+  );
+  const markInvoicePaid = useCallback(
+    (invoice: Invoice) => {
+      const rec: Invoice = { ...invoice, paid: true };
+      runOptimistic(
+        { kind: "patch", id: invoice.id, patch: { status: "Paid", statusClass: INVOICE_STATUS_CLASSES.Paid, showMarkPaid: false, invoice: rec } },
+        () => saveInvoiceAction(rec),
+        "Failed to save invoice",
+      );
+    },
+    [runOptimistic],
+  );
   const submitInvoice = useCallback(async (values: InvoiceSubmitValues) => {
     const s = stateRef.current;
     const rec: Invoice = {
-      id: s.editId || uid(),
+      id: s.editingInvoice?.id ?? uid(),
       customerId: values.customerId,
       issueDate: values.issueDate,
       dueDate: values.dueDate,
@@ -467,330 +446,289 @@ export function FinanceProvider({
       paid: values.paid,
     };
     await saveInvoiceAction(rec);
-    setState((s) => {
-      const exists = s.invoices.some((i) => i.id === rec.id);
-      const invoices = exists ? s.invoices.map((i) => (i.id === rec.id ? rec : i)) : [...s.invoices, rec];
-      return { ...s, invoices, dialog: null, editId: null };
-    });
+    setState((s) => ({ ...s, ...CLOSED_DIALOG }));
   }, []);
 
-  const openAddCustomer = useCallback(() => setState((s) => ({ ...s, dialog: "customer", editId: null })), []);
-  const openEditCustomer = useCallback((id: string) => setState((s) => ({ ...s, dialog: "customer", editId: id })), []);
-  const deleteCustomer = useCallback((id: string) => {
-    const s = stateRef.current;
-    const customer = s.customers.find((c) => c.id === id);
-    if (!customer) return;
-    // Every order needs a customer, so orders.customer_id has no on-delete action.
-    const orderCount = s.orders.filter((o) => o.customerId === id).length;
-    if (orderCount > 0) {
-      window.alert(`"${customer.name}" has ${orderCount} order${orderCount === 1 ? "" : "s"}. Delete those first.`);
-      return;
-    }
-    if (!window.confirm("Delete this customer? Linked income and invoices stay, but are unlinked.")) return;
-    // Mirrors the DB's `on delete set null` on transactions.customer_id and invoices.customer_id.
-    setState((s) => ({
-      ...s,
-      customers: s.customers.filter((c) => c.id !== id),
-      transactions: s.transactions.map((t) => (t.customerId === id ? { ...t, customerId: null } : t)),
-      invoices: s.invoices.map((i) => (i.customerId === id ? { ...i, customerId: null } : i)),
-    }));
-    deleteCustomerAction(id).catch((err) => console.error("Failed to delete customer", err));
-  }, []);
+  const openAddCustomer = useCallback(() => setState((s) => ({ ...s, ...CLOSED_DIALOG, dialog: "customer" })), []);
+  const openEditCustomer = useCallback((id: string) => setState((s) => ({ ...s, ...CLOSED_DIALOG, dialog: "customer", editId: id })), []);
+  const deleteCustomer = useCallback(
+    async (row: NamedRow & { orderCount: number }) => {
+      // Every order needs a customer, so orders.customer_id has no on-delete action.
+      if (row.orderCount > 0) {
+        await notify({
+          title: "Can't delete this customer",
+          description: `"${row.name}" has ${row.orderCount} order${row.orderCount === 1 ? "" : "s"}. Delete those first.`,
+        });
+        return;
+      }
+      if (
+        !(await confirm({
+          title: "Delete this customer?",
+          description: "Linked income and invoices stay, but are unlinked.",
+          confirmLabel: "Delete",
+          destructive: true,
+        }))
+      )
+        return;
+      runOptimistic({ kind: "hide", id: row.id }, () => deleteCustomerAction(row.id), "Failed to delete customer");
+    },
+    [confirm, notify, runOptimistic],
+  );
   const submitCustomer = useCallback(async (values: CustomerSubmitValues) => {
-    const s = stateRef.current;
-    const rec: Customer = { id: s.editId || uid(), ...values };
+    const rec: Customer = { id: stateRef.current.editId || uid(), ...values };
     await saveCustomerAction(rec);
-    setState((s) => {
-      const exists = s.customers.some((c) => c.id === rec.id);
-      const customers = exists ? s.customers.map((c) => (c.id === rec.id ? rec : c)) : [...s.customers, rec];
-      customers.sort((a, b) => a.name.localeCompare(b.name));
-      return { ...s, customers, dialog: null, editId: null };
-    });
+    setState((s) => ({ ...s, ...CLOSED_DIALOG }));
   }, []);
 
   // The category dialog reuses txnFormType as its default type selection.
   const openAddCategory = useCallback(
-    (type: TxnType = "expense") => setState((s) => ({ ...s, dialog: "category", editId: null, txnFormType: type })),
+    (type: TxnType = "expense") => setState((s) => ({ ...s, ...CLOSED_DIALOG, dialog: "category", txnFormType: type })),
     [],
   );
-  const openEditCategory = useCallback((id: string) => setState((s) => ({ ...s, dialog: "category", editId: id })), []);
-  const deleteCategory = useCallback((id: string) => {
-    const s = stateRef.current;
-    const cat = s.categories.find((c) => c.id === id);
-    if (!cat) return;
-    const txnCount = s.transactions.filter((t) => t.categoryId === id).length;
-    const hasBudget = s.budgets.some((b) => b.categoryId === id);
-    if (txnCount > 0 || hasBudget) {
-      const uses = [txnCount > 0 && `${txnCount} transaction${txnCount === 1 ? "" : "s"}`, hasBudget && "a budget"].filter(Boolean);
-      window.alert(`"${cat.name}" is used by ${uses.join(" and ")}. Reassign or remove those first, or rename the category instead.`);
-      return;
-    }
-    if (!window.confirm(`Delete the "${cat.name}" category?`)) return;
-    setState((s) => ({ ...s, categories: s.categories.filter((c) => c.id !== id) }));
-    deleteCategoryAction(id).catch((err) => console.error("Failed to delete category", err));
-  }, []);
-  const submitCategory = useCallback(async (values: CategorySubmitValues) => {
-    const s = stateRef.current;
-    const existing = s.editId ? s.categories.find((c) => c.id === s.editId) : undefined;
-    const rec: Category = { id: existing?.id ?? uid(), name: values.name, type: existing?.type ?? values.type };
-    const duplicate = s.categories.some(
-      (c) => c.id !== rec.id && c.type === rec.type && c.name.toLowerCase() === rec.name.toLowerCase(),
-    );
-    if (duplicate) {
-      window.alert(`There's already a ${rec.type} category called "${rec.name}".`);
-      return;
-    }
-    await saveCategoryAction(rec);
-    setState((s) => {
-      const exists = s.categories.some((c) => c.id === rec.id);
-      const categories = exists ? s.categories.map((c) => (c.id === rec.id ? rec : c)) : [...s.categories, rec];
-      categories.sort((a, b) => a.name.localeCompare(b.name));
-      return { ...s, categories, dialog: null, editId: null };
-    });
-  }, []);
+  const openEditCategory = useCallback((id: string) => setState((s) => ({ ...s, ...CLOSED_DIALOG, dialog: "category", editId: id })), []);
+  const deleteCategory = useCallback(
+    async (row: UsedRow & { budgeted: boolean }) => {
+      if (row.usageCount > 0 || row.budgeted) {
+        const uses = [row.usageCount > 0 && `${row.usageCount} transaction${row.usageCount === 1 ? "" : "s"}`, row.budgeted && "a budget"].filter(Boolean);
+        await notify({
+          title: "Can't delete this category",
+          description: `"${row.name}" is used by ${uses.join(" and ")}. Reassign or remove those first, or rename the category instead.`,
+        });
+        return;
+      }
+      if (!(await confirm({ title: `Delete the "${row.name}" category?`, confirmLabel: "Delete", destructive: true }))) return;
+      runOptimistic({ kind: "hide", id: row.id }, () => deleteCategoryAction(row.id), "Failed to delete category");
+    },
+    [confirm, notify, runOptimistic],
+  );
+  const submitCategory = useCallback(
+    async (values: CategorySubmitValues) => {
+      const s = stateRef.current;
+      const { categories } = lookupsRef.current;
+      const existing = s.editId ? categories.find((c) => c.id === s.editId) : undefined;
+      const rec: Category = { id: existing?.id ?? uid(), name: values.name, type: existing?.type ?? values.type };
+      const duplicate = categories.some((c) => c.id !== rec.id && c.type === rec.type && c.name.toLowerCase() === rec.name.toLowerCase());
+      if (duplicate) {
+        void notify({ title: "Duplicate category", description: `There's already a ${rec.type} category called "${rec.name}".` });
+        return;
+      }
+      await saveCategoryAction(rec);
+      setState((s) => ({ ...s, ...CLOSED_DIALOG }));
+    },
+    [notify],
+  );
 
   // Like categories, the channel dialog reuses txnFormType as its default type.
   const openAddChannel = useCallback(
-    (type: TxnType = "income") => setState((s) => ({ ...s, dialog: "channel", editId: null, txnFormType: type })),
+    (type: TxnType = "income") => setState((s) => ({ ...s, ...CLOSED_DIALOG, dialog: "channel", txnFormType: type })),
     [],
   );
-  const openEditChannel = useCallback((id: string) => setState((s) => ({ ...s, dialog: "channel", editId: id })), []);
-  const deleteChannel = useCallback((id: string) => {
-    const s = stateRef.current;
-    const ch = s.channels.find((c) => c.id === id);
-    if (!ch) return;
-    const txnCount = s.transactions.filter((t) => t.channelId === id).length;
-    const usage = txnCount > 0 ? ` ${txnCount} transaction${txnCount === 1 ? "" : "s"} will be unlinked.` : "";
-    if (!window.confirm(`Delete the "${ch.name}" channel?${usage}`)) return;
-    // Mirrors the DB's `on delete set null (channel_id)` on transactions.
-    setState((s) => ({
-      ...s,
-      channels: s.channels.filter((c) => c.id !== id),
-      transactions: s.transactions.map((t) => (t.channelId === id ? { ...t, channelId: null } : t)),
-    }));
-    deleteChannelAction(id).catch((err) => console.error("Failed to delete channel", err));
-  }, []);
-  const submitChannel = useCallback(async (values: ChannelSubmitValues) => {
-    const s = stateRef.current;
-    const existing = s.editId ? s.channels.find((c) => c.id === s.editId) : undefined;
-    const rec: Channel = { id: existing?.id ?? uid(), name: values.name, type: existing?.type ?? values.type };
-    const duplicate = s.channels.some(
-      (c) => c.id !== rec.id && c.type === rec.type && c.name.toLowerCase() === rec.name.toLowerCase(),
-    );
-    if (duplicate) {
-      window.alert(`There's already a ${rec.type} channel called "${rec.name}".`);
-      return;
-    }
-    await saveChannelAction(rec);
-    setState((s) => {
-      const exists = s.channels.some((c) => c.id === rec.id);
-      const channels = exists ? s.channels.map((c) => (c.id === rec.id ? rec : c)) : [...s.channels, rec];
-      channels.sort((a, b) => a.name.localeCompare(b.name));
-      return { ...s, channels, dialog: null, editId: null };
-    });
-  }, []);
+  const openEditChannel = useCallback((id: string) => setState((s) => ({ ...s, ...CLOSED_DIALOG, dialog: "channel", editId: id })), []);
+  const deleteChannel = useCallback(
+    async (row: UsedRow) => {
+      const usage = row.usageCount > 0 ? `${row.usageCount} transaction${row.usageCount === 1 ? "" : "s"} will be unlinked.` : undefined;
+      if (!(await confirm({ title: `Delete the "${row.name}" channel?`, description: usage, confirmLabel: "Delete", destructive: true }))) return;
+      runOptimistic({ kind: "hide", id: row.id }, () => deleteChannelAction(row.id), "Failed to delete channel");
+    },
+    [confirm, runOptimistic],
+  );
+  const submitChannel = useCallback(
+    async (values: ChannelSubmitValues) => {
+      const s = stateRef.current;
+      const { channels } = lookupsRef.current;
+      const existing = s.editId ? channels.find((c) => c.id === s.editId) : undefined;
+      const rec: Channel = { id: existing?.id ?? uid(), name: values.name, type: existing?.type ?? values.type };
+      const duplicate = channels.some((c) => c.id !== rec.id && c.type === rec.type && c.name.toLowerCase() === rec.name.toLowerCase());
+      if (duplicate) {
+        void notify({ title: "Duplicate channel", description: `There's already a ${rec.type} channel called "${rec.name}".` });
+        return;
+      }
+      await saveChannelAction(rec);
+      setState((s) => ({ ...s, ...CLOSED_DIALOG }));
+    },
+    [notify],
+  );
 
-  const openAddSource = useCallback(() => setState((s) => ({ ...s, dialog: "source", editId: null })), []);
-  const openEditSource = useCallback((id: string) => setState((s) => ({ ...s, dialog: "source", editId: id })), []);
-  const deleteSource = useCallback((id: string) => {
-    const s = stateRef.current;
-    const src = s.sources.find((x) => x.id === id);
-    if (!src) return;
-    const txnCount = s.transactions.filter((t) => t.sourceId === id).length;
-    const usage = txnCount > 0 ? ` ${txnCount} expense${txnCount === 1 ? "" : "s"} will be unlinked.` : "";
-    if (!window.confirm(`Delete the "${src.name}" source?${usage}`)) return;
-    // Mirrors the DB's `on delete set null (source_id)` on transactions.
-    setState((s) => ({
-      ...s,
-      sources: s.sources.filter((x) => x.id !== id),
-      transactions: s.transactions.map((t) => (t.sourceId === id ? { ...t, sourceId: null } : t)),
-    }));
-    deleteSourceAction(id).catch((err) => console.error("Failed to delete source", err));
-  }, []);
-  const submitSource = useCallback(async (values: SourceSubmitValues) => {
-    const s = stateRef.current;
-    const rec: Source = { id: s.editId || uid(), name: values.name };
-    // Mirrors the DB's unique (name), but case-insensitively.
-    const duplicate = s.sources.some((x) => x.id !== rec.id && x.name.toLowerCase() === rec.name.toLowerCase());
-    if (duplicate) {
-      window.alert(`There's already a source called "${rec.name}".`);
-      return;
-    }
-    await saveSourceAction(rec);
-    setState((s) => {
-      const exists = s.sources.some((x) => x.id === rec.id);
-      const sources = exists ? s.sources.map((x) => (x.id === rec.id ? rec : x)) : [...s.sources, rec];
-      sources.sort((a, b) => a.name.localeCompare(b.name));
-      return { ...s, sources, dialog: null, editId: null };
-    });
-  }, []);
+  const openAddSource = useCallback(() => setState((s) => ({ ...s, ...CLOSED_DIALOG, dialog: "source" })), []);
+  const openEditSource = useCallback((id: string) => setState((s) => ({ ...s, ...CLOSED_DIALOG, dialog: "source", editId: id })), []);
+  const deleteSource = useCallback(
+    async (row: UsedRow) => {
+      const usage = row.usageCount > 0 ? `${row.usageCount} expense${row.usageCount === 1 ? "" : "s"} will be unlinked.` : undefined;
+      if (!(await confirm({ title: `Delete the "${row.name}" source?`, description: usage, confirmLabel: "Delete", destructive: true }))) return;
+      runOptimistic({ kind: "hide", id: row.id }, () => deleteSourceAction(row.id), "Failed to delete source");
+    },
+    [confirm, runOptimistic],
+  );
+  const submitSource = useCallback(
+    async (values: SourceSubmitValues) => {
+      const rec: Source = { id: stateRef.current.editId || uid(), name: values.name };
+      // Mirrors the DB's unique (name), but case-insensitively.
+      const duplicate = lookupsRef.current.sources.some((x) => x.id !== rec.id && x.name.toLowerCase() === rec.name.toLowerCase());
+      if (duplicate) {
+        void notify({ title: "Duplicate source", description: `There's already a source called "${rec.name}".` });
+        return;
+      }
+      await saveSourceAction(rec);
+      setState((s) => ({ ...s, ...CLOSED_DIALOG }));
+    },
+    [notify],
+  );
 
-  const openAddDeliveryProvider = useCallback(() => setState((s) => ({ ...s, dialog: "deliveryProvider", editId: null })), []);
+  const openAddDeliveryProvider = useCallback(() => setState((s) => ({ ...s, ...CLOSED_DIALOG, dialog: "deliveryProvider" })), []);
   const openEditDeliveryProvider = useCallback(
-    (id: string) => setState((s) => ({ ...s, dialog: "deliveryProvider", editId: id })),
+    (id: string) => setState((s) => ({ ...s, ...CLOSED_DIALOG, dialog: "deliveryProvider", editId: id })),
     [],
   );
-  const deleteDeliveryProvider = useCallback((id: string) => {
-    const s = stateRef.current;
-    const provider = s.deliveryProviders.find((x) => x.id === id);
-    if (!provider) return;
-    const orderCount = s.orders.filter((o) => o.deliveryProviderId === id).length;
-    const usage = orderCount > 0 ? ` ${orderCount} order${orderCount === 1 ? "" : "s"} will be unlinked.` : "";
-    if (!window.confirm(`Delete the "${provider.name}" delivery provider?${usage}`)) return;
-    // Mirrors the DB's `on delete set null` on orders.delivery_provider_id.
-    setState((s) => ({
-      ...s,
-      deliveryProviders: s.deliveryProviders.filter((x) => x.id !== id),
-      orders: s.orders.map((o) => (o.deliveryProviderId === id ? { ...o, deliveryProviderId: null } : o)),
-    }));
-    deleteDeliveryProviderAction(id).catch((err) => console.error("Failed to delete delivery provider", err));
-  }, []);
-  const submitDeliveryProvider = useCallback(async (values: DeliveryProviderSubmitValues) => {
-    const s = stateRef.current;
-    const rec: DeliveryProvider = { id: s.editId || uid(), name: values.name };
-    // Mirrors the DB's unique (name), but case-insensitively.
-    const duplicate = s.deliveryProviders.some((x) => x.id !== rec.id && x.name.toLowerCase() === rec.name.toLowerCase());
-    if (duplicate) {
-      window.alert(`There's already a delivery provider called "${rec.name}".`);
-      return;
-    }
-    await saveDeliveryProviderAction(rec);
-    setState((s) => {
-      const exists = s.deliveryProviders.some((x) => x.id === rec.id);
-      const deliveryProviders = exists ? s.deliveryProviders.map((x) => (x.id === rec.id ? rec : x)) : [...s.deliveryProviders, rec];
-      deliveryProviders.sort((a, b) => a.name.localeCompare(b.name));
-      return { ...s, deliveryProviders, dialog: null, editId: null };
-    });
-  }, []);
+  const deleteDeliveryProvider = useCallback(
+    async (row: UsedRow) => {
+      const usage = row.usageCount > 0 ? `${row.usageCount} order${row.usageCount === 1 ? "" : "s"} will be unlinked.` : undefined;
+      if (!(await confirm({ title: `Delete the "${row.name}" delivery provider?`, description: usage, confirmLabel: "Delete", destructive: true })))
+        return;
+      runOptimistic({ kind: "hide", id: row.id }, () => deleteDeliveryProviderAction(row.id), "Failed to delete delivery provider");
+    },
+    [confirm, runOptimistic],
+  );
+  const submitDeliveryProvider = useCallback(
+    async (values: DeliveryProviderSubmitValues) => {
+      const rec: DeliveryProvider = { id: stateRef.current.editId || uid(), name: values.name };
+      // Mirrors the DB's unique (name), but case-insensitively.
+      const duplicate = lookupsRef.current.deliveryProviders.some((x) => x.id !== rec.id && x.name.toLowerCase() === rec.name.toLowerCase());
+      if (duplicate) {
+        void notify({ title: "Duplicate delivery provider", description: `There's already a delivery provider called "${rec.name}".` });
+        return;
+      }
+      await saveDeliveryProviderAction(rec);
+      setState((s) => ({ ...s, ...CLOSED_DIALOG }));
+    },
+    [notify],
+  );
 
-  const openAddPaymentMethod = useCallback(() => setState((s) => ({ ...s, dialog: "paymentMethod", editId: null })), []);
-  const openEditPaymentMethod = useCallback((id: string) => setState((s) => ({ ...s, dialog: "paymentMethod", editId: id })), []);
-  const deletePaymentMethod = useCallback((id: string) => {
-    const s = stateRef.current;
-    const method = s.paymentMethods.find((x) => x.id === id);
-    if (!method) return;
-    const orderCount = s.orders.filter((o) => o.paymentMethodId === id).length;
-    const usage = orderCount > 0 ? ` ${orderCount} order${orderCount === 1 ? "" : "s"} will be unlinked.` : "";
-    if (!window.confirm(`Delete the "${method.name}" payment method?${usage}`)) return;
-    // Mirrors the DB's `on delete set null` on orders.payment_method_id.
-    setState((s) => ({
-      ...s,
-      paymentMethods: s.paymentMethods.filter((x) => x.id !== id),
-      orders: s.orders.map((o) => (o.paymentMethodId === id ? { ...o, paymentMethodId: null } : o)),
-    }));
-    deletePaymentMethodAction(id).catch((err) => console.error("Failed to delete payment method", err));
-  }, []);
-  const submitPaymentMethod = useCallback(async (values: PaymentMethodSubmitValues) => {
-    const s = stateRef.current;
-    const rec: PaymentMethod = { id: s.editId || uid(), name: values.name };
-    const duplicate = s.paymentMethods.some((x) => x.id !== rec.id && x.name.toLowerCase() === rec.name.toLowerCase());
-    if (duplicate) {
-      window.alert(`There's already a payment method called "${rec.name}".`);
-      return;
-    }
-    await savePaymentMethodAction(rec);
-    setState((s) => {
-      const exists = s.paymentMethods.some((x) => x.id === rec.id);
-      const paymentMethods = exists ? s.paymentMethods.map((x) => (x.id === rec.id ? rec : x)) : [...s.paymentMethods, rec];
-      paymentMethods.sort((a, b) => a.name.localeCompare(b.name));
-      return { ...s, paymentMethods, dialog: null, editId: null };
-    });
-  }, []);
+  const openAddPaymentMethod = useCallback(() => setState((s) => ({ ...s, ...CLOSED_DIALOG, dialog: "paymentMethod" })), []);
+  const openEditPaymentMethod = useCallback(
+    (id: string) => setState((s) => ({ ...s, ...CLOSED_DIALOG, dialog: "paymentMethod", editId: id })),
+    [],
+  );
+  const deletePaymentMethod = useCallback(
+    async (row: UsedRow) => {
+      const usage = row.usageCount > 0 ? `${row.usageCount} order${row.usageCount === 1 ? "" : "s"} will be unlinked.` : undefined;
+      if (!(await confirm({ title: `Delete the "${row.name}" payment method?`, description: usage, confirmLabel: "Delete", destructive: true })))
+        return;
+      runOptimistic({ kind: "hide", id: row.id }, () => deletePaymentMethodAction(row.id), "Failed to delete payment method");
+    },
+    [confirm, runOptimistic],
+  );
+  const submitPaymentMethod = useCallback(
+    async (values: PaymentMethodSubmitValues) => {
+      const rec: PaymentMethod = { id: stateRef.current.editId || uid(), name: values.name };
+      const duplicate = lookupsRef.current.paymentMethods.some((x) => x.id !== rec.id && x.name.toLowerCase() === rec.name.toLowerCase());
+      if (duplicate) {
+        void notify({ title: "Duplicate payment method", description: `There's already a payment method called "${rec.name}".` });
+        return;
+      }
+      await savePaymentMethodAction(rec);
+      setState((s) => ({ ...s, ...CLOSED_DIALOG }));
+    },
+    [notify],
+  );
 
-  const openAddProduct = useCallback(() => setState((s) => ({ ...s, dialog: "product", editId: null })), []);
-  const openEditProduct = useCallback((id: string) => setState((s) => ({ ...s, dialog: "product", editId: id })), []);
-  const deleteProduct = useCallback((id: string) => {
-    const s = stateRef.current;
-    const p = s.products.find((x) => x.id === id);
-    if (!p) return;
-    // order_items.product_id has no on-delete action, so the DB would reject this.
-    const orderCount = s.orders.filter((o) => o.items.some((i) => i.productId === id)).length;
-    if (orderCount > 0) {
-      window.alert(`"${p.name}" (${p.color}, ${p.type}) is on ${orderCount} order${orderCount === 1 ? "" : "s"}. Remove it from those first.`);
-      return;
-    }
-    if (!window.confirm(`Delete "${p.name}" (${p.color}, ${p.type})?`)) return;
-    setState((s) => ({ ...s, products: s.products.filter((x) => x.id !== id) }));
-    deleteProductAction(id).catch((err) => console.error("Failed to delete product", err));
-  }, []);
-  const submitProduct = useCallback(async (values: ProductSubmitValues) => {
-    const s = stateRef.current;
-    const rec: Product = {
-      id: s.editId || uid(),
-      name: values.name,
-      color: values.color,
-      type: values.type,
-      quantity: Math.max(0, Math.trunc(values.quantity || 0)),
-      price: Math.abs(values.price || 0),
-    };
-    // Mirrors the DB's unique (name, color, type), but case-insensitively.
-    const duplicate = s.products.some(
-      (p) =>
-        p.id !== rec.id &&
-        p.type === rec.type &&
-        p.name.toLowerCase() === rec.name.toLowerCase() &&
-        p.color.toLowerCase() === rec.color.toLowerCase(),
-    );
-    if (duplicate) {
-      window.alert(`"${rec.name}" in ${rec.color} (${rec.type}) already exists. Edit that one instead.`);
-      return;
-    }
-    await saveProductAction(rec);
-    setState((s) => {
-      const exists = s.products.some((p) => p.id === rec.id);
-      const products = exists ? s.products.map((p) => (p.id === rec.id ? rec : p)) : [...s.products, rec];
-      products.sort((a, b) => a.name.localeCompare(b.name) || a.color.localeCompare(b.color) || a.type.localeCompare(b.type));
-      return { ...s, products, dialog: null, editId: null };
-    });
-  }, []);
-
-  const openAddOrder = useCallback(() => {
-    router.push("/orders/new");
+  const openAddProduct = useCallback(() => {
+    router.push(withDateFilter("/products/new"));
   }, [router]);
-  const openEditOrder = useCallback(
+  const openEditProduct = useCallback(
     (id: string) => {
-      router.push(`/orders/${id}`);
+      router.push(withDateFilter(`/products/${id}`));
     },
     [router],
   );
-  const deleteOrder = useCallback((id: string) => {
-    const o = stateRef.current.orders.find((x) => x.id === id);
-    if (!o) return;
-    const paymentCount = stateRef.current.transactions.filter((t) => t.orderId === id).length;
-    const note = paymentCount > 0 ? ` Its ${paymentCount} payment${paymentCount === 1 ? "" : "s"} stay in Transactions, unlinked.` : "";
-    if (!window.confirm(`Delete order ${o.orderNumber}?${note}`)) return;
-    // Mirrors the DB's `on delete set null` on transactions.order_id.
-    setState((s) => ({
-      ...s,
-      orders: s.orders.filter((x) => x.id !== id),
-      transactions: s.transactions.map((t) => (t.orderId === id ? { ...t, orderId: null } : t)),
-    }));
-    deleteOrderAction(id).catch((err) => console.error("Failed to delete order", err));
-  }, []);
-  const saveOrderOptimistic = useCallback((rec: Order) => {
-    setState((s) => ({ ...s, orders: s.orders.map((o) => (o.id === rec.id ? rec : o)) }));
-    saveOrderAction(rec, null).catch((err) => console.error("Failed to save order", err));
-  }, []);
-  const advanceOrderStatus = useCallback(
-    (id: string) => {
-      const existing = stateRef.current.orders.find((o) => o.id === id);
-      const next = existing && NEXT_ORDER_STATUS[existing.status];
-      if (!existing || !next) return;
-      saveOrderOptimistic({ ...existing, status: next.status });
+  const deleteProduct = useCallback(
+    async (row: NamedRow & { variantCount: number; orderCount: number }) => {
+      // order_items.variant_id has no on-delete action, so the DB would reject this.
+      if (row.orderCount > 0) {
+        await notify({
+          title: "Can't delete this product",
+          description: `"${row.name}" is on ${row.orderCount} order${row.orderCount === 1 ? "" : "s"}. Remove it from those first.`,
+        });
+        return;
+      }
+      if (
+        !(await confirm({
+          title: `Delete "${row.name}"?`,
+          description: `Its ${row.variantCount} variant${row.variantCount === 1 ? "" : "s"} will be deleted too.`,
+          confirmLabel: "Delete",
+          destructive: true,
+        }))
+      )
+        return;
+      runOptimistic({ kind: "hide", id: row.id }, () => deleteProductAction(row.id), "Failed to delete product");
     },
-    [saveOrderOptimistic],
+    [confirm, notify, runOptimistic],
   );
-  const submitOrder = useCallback(async (values: OrderSubmitValues) => {
-    const s = stateRef.current;
-    const orderId = values.id ?? s.editId ?? uid();
-    const existing = s.orders.find((o) => o.id === orderId);
+  // Resolves to a message when the product can't be saved; throws if the server save fails.
+  const submitProduct = useCallback(async (values: ProductSubmitValues, variantIdsInUse: string[]): Promise<string | null> => {
+    const { products } = lookupsRef.current;
+    const rec: Product = {
+      id: values.id || uid(),
+      name: values.name,
+      optionNames: values.optionNames,
+      variants: values.variants.map((v) => ({
+        id: v.id,
+        options: v.options,
+        quantity: Math.max(0, Math.trunc(v.quantity || 0)),
+        price: Math.abs(v.price || 0),
+      })),
+    };
+    // Mirrors the DB's unique product name, case-insensitively.
+    if (products.some((p) => p.id !== rec.id && p.name.trim().toLowerCase() === rec.name.toLowerCase())) {
+      return `"${rec.name}" already exists. Add a variant to that product instead.`;
+    }
+    // A removed variant that is on an order would be rejected by the DB.
+    const kept = new Set(rec.variants.map((v) => v.id));
+    const removedInUse = variantIdsInUse.filter((id) => !kept.has(id)).length;
+    if (removedInUse > 0) {
+      return `${removedInUse === 1 ? "A removed variant is" : "Removed variants are"} on an order. Remove ${removedInUse === 1 ? "it" : "them"} from those orders first.`;
+    }
+    await saveProductAction(rec);
+    return null;
+  }, []);
+
+  const openAddOrder = useCallback(() => {
+    router.push(withDateFilter("/orders/new"));
+  }, [router]);
+  const openEditOrder = useCallback(
+    (id: string) => {
+      router.push(withDateFilter(`/orders/${id}`));
+    },
+    [router],
+  );
+  const deleteOrder = useCallback(
+    async (row: { id: string; orderNumber: string; paymentCount: number }) => {
+      const note =
+        row.paymentCount > 0 ? `Its ${row.paymentCount} payment${row.paymentCount === 1 ? "" : "s"} stay in Transactions, unlinked.` : undefined;
+      if (!(await confirm({ title: `Delete order ${row.orderNumber}?`, description: note, confirmLabel: "Delete", destructive: true }))) return;
+      runOptimistic({ kind: "hide", id: row.id }, () => deleteOrderAction(row.id), "Failed to delete order");
+    },
+    [confirm, runOptimistic],
+  );
+  const advanceOrderStatus = useCallback(
+    (row: { id: string; orderStatus: OrderStatus }) => {
+      const next = NEXT_ORDER_STATUS[row.orderStatus];
+      if (!next) return;
+      runOptimistic(
+        { kind: "patch", id: row.id, patch: orderStatusCells(next.status) },
+        () => setOrderStatusAction(row.id, next.status),
+        "Failed to update order status",
+      );
+    },
+    [runOptimistic],
+  );
+  // Resolves to a message when the order can't be saved; throws if the server save fails.
+  const submitOrder = useCallback(async (values: OrderSubmitValues, existing: Order | null): Promise<string | null> => {
     const deliveryCharge = Math.abs(values.deliveryCharge || 0);
     // A payment is only taken here for a new order; an existing one keeps what it has.
-    const payment: OrderPayment | null =
-      !existing && values.payment && values.payment.amount > 0 ? { id: uid(), ...values.payment } : null;
+    const payment: OrderPayment | null = !existing && values.payment && values.payment.amount > 0 ? { id: uid(), ...values.payment } : null;
     const amountPaid = existing ? existing.amountPaid : (payment?.amount ?? 0);
-    const draft: Omit<Order, "orderNumber"> = {
-      id: orderId,
+    const draft: Omit<Order, "orderNumber" | "stockTracked"> = {
+      id: existing?.id ?? uid(),
       customerId: values.customerId,
       orderDate: values.orderDate,
       status: values.status,
@@ -803,48 +741,47 @@ export function FinanceProvider({
       ...orderTotals(values.items, deliveryCharge, amountPaid),
     };
     if (draft.totalPrice < amountPaid) {
-      window.alert(`The total can't be less than the ${fmtMoney(amountPaid)} already paid. Correct the payments in Transactions first.`);
-      return;
+      return `The total can't be less than the ${fmtMoney(amountPaid)} already paid. Correct the payments in Transactions first.`;
     }
-    // The DB assigns the number on first save and keeps it on later ones.
-    const rec: Order = { ...draft, orderNumber: await saveOrderAction(draft, payment) };
-    setState((s) => {
-      const orders = existing ? s.orders.map((o) => (o.id === rec.id ? rec : o)) : [...s.orders, rec];
-      // Mirrors save_order(): a first payment becomes an income transaction, and
-      // existing payments follow the order's customer.
-      const transactions = payment
-        ? [...s.transactions, orderPaymentTransaction(rec, payment)]
-        : s.transactions.map((t) => (t.orderId === rec.id ? { ...t, customerId: rec.customerId } : t));
-      return { ...s, orders, transactions, dialog: null, editId: null };
-    });
+    if (existing ? existing.stockTracked : true) {
+      // Stock this order can still draw on: what's on the shelf plus what this order already holds.
+      const held = new Map<string, number>();
+      if (existing?.stockTracked) for (const i of existing.items) held.set(i.variantId, (held.get(i.variantId) ?? 0) + i.quantity);
+      const variants = lookupsRef.current.products.flatMap((p) => p.variants.map((v) => ({ p, v })));
+      for (const item of values.items) {
+        const found = variants.find(({ v }) => v.id === item.variantId);
+        const available = found ? found.v.quantity + (held.get(item.variantId) ?? 0) : Infinity;
+        if (found && item.quantity > available) {
+          const label = variantLabel(found.p.optionNames, found.v.options);
+          return `Not enough stock for ${found.p.name}${label ? ` · ${label}` : ""}: ${available} available.`;
+        }
+      }
+    }
+    await saveOrderAction(draft, payment);
+    return null;
   }, []);
 
   const openRecordPayment = useCallback(
-    (orderId: string) => setState((s) => ({ ...s, dialog: "payment", editId: orderId })),
+    (target: PaymentTarget) => setState((s) => ({ ...s, ...CLOSED_DIALOG, dialog: "payment", editId: target.orderId, paymentTarget: target })),
     [],
   );
   const submitPayment = useCallback(async (values: PaymentSubmitValues) => {
-    const s = stateRef.current;
-    const order = s.orders.find((o) => o.id === s.editId);
-    if (!order) return;
-    const payment: OrderPayment = { id: uid(), ...values };
-    await recordOrderPaymentAction(order.id, payment);
-    setState((s) => {
-      const transactions = [...s.transactions, orderPaymentTransaction(order, payment)];
-      return { ...s, transactions, orders: syncOrderPayments(s.orders, transactions), dialog: null, editId: null };
-    });
+    const target = stateRef.current.paymentTarget;
+    if (!target) return;
+    await recordOrderPaymentAction(target.orderId, { id: uid(), ...values });
+    setState((s) => ({ ...s, ...CLOSED_DIALOG }));
   }, []);
 
   const value: FinanceContextValue = {
     state,
+    lookups,
+    dateFilter,
+    isNavigating,
+    optimisticRows,
+    setSearch,
     setDateStart,
     setDateEnd,
-    presetMonth,
-    presetQuarter,
-    presetYTD,
-    presetAll,
-    setFilterType,
-    setFilterCategory,
+    setDatePreset,
     closeDialog,
     openAddTxn,
     openEditTxn,
@@ -897,7 +834,18 @@ export function FinanceProvider({
     submitOrder,
   };
 
-  return <FinanceContext.Provider value={value}>{children}</FinanceContext.Provider>;
+  return (
+    <FinanceContext.Provider value={value}>
+      {children}
+      {confirmDialog}
+    </FinanceContext.Provider>
+  );
+}
+
+// Keeps the date filter when moving to another dashboard page. Call it from
+// event handlers only, since it reads window.location.
+export function withDateFilter(path: string): string {
+  return path + pickDateFilterSearch(new URLSearchParams(window.location.search));
 }
 
 export function useFinance(): FinanceContextValue {
@@ -906,400 +854,79 @@ export function useFinance(): FinanceContextValue {
   return ctx;
 }
 
-// Mirrors the design source's renderVals(): every page-level derived value,
-// recomputed from raw state whenever the date range, filters or records change.
-export function useDashboardData() {
-  const { state } = useFinance();
-  const s = state;
+// A table's rows from the server with any in-flight delete or quick edit applied.
+export function useOptimisticRows<T extends { id: string }>(rows: T[]): T[] {
+  const { optimisticRows } = useFinance();
+  return useMemo(
+    () =>
+      rows
+        .filter((r) => !optimisticRows.hidden.has(r.id))
+        .map((r) => {
+          const patch = optimisticRows.patches.get(r.id);
+          return patch ? ({ ...r, ...patch } as T) : r;
+        }),
+    [rows, optimisticRows],
+  );
+}
+
+// Dropdown options and the record each dialog edits, from the lookup tables.
+// Totals and table rows don't belong here: they come from the server per page.
+export function useLookups() {
+  const { state: s, lookups: l } = useFinance();
 
   return useMemo(() => {
-    const filtered = s.transactions.filter((t) => inRange(t.date, s.dateStart, s.dateEnd));
-    const totalIncome = filtered.filter((t) => t.type === "income").reduce((a, t) => a + t.amount, 0);
-    const totalExpense = filtered.filter((t) => t.type === "expense").reduce((a, t) => a + t.amount, 0);
-    const netIncome = totalIncome - totalExpense;
-
-    const rangeDays = daysBetween(s.dateStart, s.dateEnd) + 1;
-    const prevEnd = addDays(s.dateStart, -1);
-    const prevStart = addDays(prevEnd, -(rangeDays - 1));
-    const prevTx = s.transactions.filter((t) => inRange(t.date, prevStart, prevEnd));
-    const prevIncome = prevTx.filter((t) => t.type === "income").reduce((a, t) => a + t.amount, 0);
-    const prevExpense = prevTx.filter((t) => t.type === "expense").reduce((a, t) => a + t.amount, 0);
-    const prevNet = prevIncome - prevExpense;
-
-    const incD = deltaBits(totalIncome, prevIncome, true);
-    const expD = deltaBits(totalExpense, prevExpense, false);
-    const netD = deltaBits(netIncome, prevNet, true);
-
-    const categoryById = new Map(s.categories.map((c) => [c.id, c]));
-    const channelById = new Map(s.channels.map((c) => [c.id, c]));
-    const sourceById = new Map(s.sources.map((x) => [x.id, x]));
-    const customerById = new Map(s.customers.map((c) => [c.id, c]));
-    const categoryName = (id: string) => categoryById.get(id)?.name ?? "Unknown category";
-    const customerName = (id: string) => customerById.get(id)?.name ?? "Unknown customer";
-
-    const monthAgg = buildMonthAgg(filtered, s.dateStart, s.dateEnd);
-    const chart = buildChartData(monthAgg);
-    const categoryBreakdown = buildCategoryBreakdown(filtered, totalExpense, categoryName);
-
-    const dateDisplayAmount = (t: Transaction) => ({
-      dateDisplay: fmtDate(t.date),
-      amountDisplay: (t.type === "income" ? "+" : "–") + fmtMoney(t.amount).replace(/^–/, ""),
-      amountClass: t.type === "income" ? "text-accent-600" : "text-ink",
-    });
-
-    const recentTransactions = filtered
-      .slice()
-      .sort((a, b) => b.date.localeCompare(a.date))
-      .slice(0, 6)
-      .map((t) => ({ id: t.id, description: t.description, ...dateDisplayAmount(t) }));
-
-    const categoryOptions = (type: TxnType) => s.categories.filter((c) => c.type === type).map((c) => ({ id: c.id, name: c.name }));
-    const transactionsList = filtered
-      .filter(
-        (t) =>
-          (s.filterType === "all" || t.type === s.filterType) &&
-          (s.filterCategory === "all" || t.categoryId === s.filterCategory),
-      )
-      .sort((a, b) => b.date.localeCompare(a.date))
-      .map((t) => ({
-        id: t.id,
-        date: t.date,
-        description: t.description,
-        amount: t.amount,
-        ...dateDisplayAmount(t),
-        category: categoryName(t.categoryId),
-        channel: (t.channelId && channelById.get(t.channelId)?.name) || "—",
-        customerName: t.customerId ? customerName(t.customerId) : null,
-        sourceName: t.sourceId ? (sourceById.get(t.sourceId)?.name ?? "Unknown source") : null,
-        tagClass: t.type === "income" ? "bg-accent-50 text-accent-700" : "bg-mist text-graphite",
-      }));
-
-    const monthsInRange = monthsBetweenInclusive(s.dateStart, s.dateEnd);
-    const budgetRows = s.budgets.map((b) => {
-      const scaledTarget = b.target * monthsInRange;
-      const actual = filtered.filter((t) => t.categoryId === b.categoryId).reduce((a, t) => a + t.amount, 0);
-      const pct = scaledTarget > 0 ? (actual / scaledTarget) * 100 : 0;
-      const over = actual > scaledTarget;
-      return {
-        id: b.id,
-        category: categoryName(b.categoryId),
-        target: scaledTarget,
-        targetDisplay: fmtMoney(scaledTarget),
-        actual,
-        actualDisplay: fmtMoney(actual),
-        pctWidth: Math.min(100, pct) + "%",
-        barClass: over ? "fill-accent-800" : "fill-accent-500",
-        over,
-        overAmountDisplay: fmtMoney(actual - scaledTarget),
-      };
-    });
-    budgetRows.sort((a, b) => a.category.localeCompare(b.category));
-    const totalBudgetTarget = s.budgets.reduce((a, b) => a + b.target * monthsInRange, 0);
-    const totalBudgetActual = budgetRows.reduce((a, r) => a + r.actual, 0);
-
-    const invFiltered = s.invoices.filter((i) => inRange(i.issueDate, s.dateStart, s.dateEnd));
-    const invoicesList = invFiltered
-      .slice()
-      .sort((a, b) => b.issueDate.localeCompare(a.issueDate))
-      .map((inv) => {
-        const overdue = !inv.paid && inv.dueDate < TODAY;
-        const status = inv.paid ? "Paid" : overdue ? "Overdue" : "Outstanding";
-        return {
-          id: inv.id,
-          client: inv.customerId ? customerName(inv.customerId) : "—",
-          issueDate: inv.issueDate,
-          issueDisplay: fmtDate(inv.issueDate),
-          dueDate: inv.dueDate,
-          dueDisplay: fmtDate(inv.dueDate),
-          amount: inv.amount,
-          amountDisplay: fmtMoney(inv.amount),
-          status,
-          statusClass: STATUS_CLASSES[status],
-          showMarkPaid: !inv.paid,
-        };
-      });
-    const totalOutstanding = invFiltered.filter((i) => !i.paid).reduce((a, i) => a + i.amount, 0);
-    const overdueCount = invFiltered.filter((i) => !i.paid && i.dueDate < TODAY).length;
-    const paidTotal = invFiltered.filter((i) => i.paid).reduce((a, i) => a + i.amount, 0);
-
-    const customerRows = s.customers.map((c) => {
-      const linked = s.transactions.filter((t) => t.type === "income" && t.customerId === c.id);
-      const inRangeIncome = linked.filter((t) => inRange(t.date, s.dateStart, s.dateEnd)).reduce((a, t) => a + t.amount, 0);
-      const lifetimeIncome = linked.reduce((a, t) => a + t.amount, 0);
-      const lastDate = linked.reduce((m, t) => (t.date > m ? t.date : m), "");
-      return {
-        id: c.id,
-        name: c.name,
-        company: c.company || "—",
-        contact: [c.email, c.phone].filter(Boolean).join(" · ") || "—",
-        inRangeIncome,
-        inRangeDisplay: fmtMoney(inRangeIncome),
-        lifetimeIncome,
-        lifetimeDisplay: fmtMoney(lifetimeIncome),
-        lastDate,
-        paymentsLabel: linked.length + " payment" + (linked.length === 1 ? "" : "s"),
-        lastDisplay: lastDate ? fmtDate(lastDate) : "—",
-      };
-    });
-    const customerIncomeInRange = customerRows.reduce((a, r) => a + r.inRangeIncome, 0);
-    const unlinkedIncome = totalIncome - customerIncomeInRange;
-    const topCustomer = customerRows.reduce<(typeof customerRows)[number] | null>(
-      (best, r) => (r.inRangeIncome > 0 && (!best || r.inRangeIncome > best.inRangeIncome) ? r : best),
-      null,
-    );
-
-    const editingTxn = s.editId && s.dialog === "txn" ? s.transactions.find((t) => t.id === s.editId) : null;
-    const editingBudget = s.editId && s.dialog === "budget" ? s.budgets.find((b) => b.id === s.editId) : null;
-    const editingInvoice = s.editId && s.dialog === "invoice" ? s.invoices.find((i) => i.id === s.editId) : null;
-    const categoryRows = (type: TxnType) =>
-      s.categories
-        .filter((c) => c.type === type)
-        .map((c) => {
-          const count = s.transactions.filter((t) => t.categoryId === c.id).length;
-          const budgeted = s.budgets.some((b) => b.categoryId === c.id);
-          return {
-            id: c.id,
-            name: c.name,
-            usageCount: count,
-            usageLabel: count + " transaction" + (count === 1 ? "" : "s"),
-            budgeted,
-          };
-        });
-    const editingCategory = s.editId && s.dialog === "category" ? s.categories.find((c) => c.id === s.editId) : null;
-
-    const channelOptions = (type: TxnType) => s.channels.filter((c) => c.type === type).map((c) => ({ id: c.id, name: c.name }));
-    const channelRows = (type: TxnType) =>
-      s.channels
-        .filter((c) => c.type === type)
-        .map((c) => {
-          const count = s.transactions.filter((t) => t.channelId === c.id).length;
-          return { id: c.id, name: c.name, usageCount: count, usageLabel: count + " transaction" + (count === 1 ? "" : "s") };
-        });
-    const editingChannel = s.editId && s.dialog === "channel" ? s.channels.find((c) => c.id === s.editId) : null;
-
-    const sourceRows = s.sources.map((x) => {
-      const linked = s.transactions.filter((t) => t.type === "expense" && t.sourceId === x.id);
-      const inRangeSpend = linked.filter((t) => inRange(t.date, s.dateStart, s.dateEnd)).reduce((a, t) => a + t.amount, 0);
-      return {
-        id: x.id,
-        name: x.name,
-        usageCount: linked.length,
-        usageLabel: linked.length + " expense" + (linked.length === 1 ? "" : "s"),
-        inRangeSpend,
-        inRangeDisplay: fmtMoney(inRangeSpend),
-      };
-    });
-    const sourcedExpense = sourceRows.reduce((a, r) => a + r.inRangeSpend, 0);
-    const editingSource = s.editId && s.dialog === "source" ? s.sources.find((x) => x.id === s.editId) : null;
-
-    const editingCustomer = s.editId && s.dialog === "customer" ? s.customers.find((c) => c.id === s.editId) : null;
-
-    const productRows = s.products.map((p) => ({
-      id: p.id,
-      name: p.name,
-      color: p.color,
-      typeLabel: PAPER_TYPE_LABELS[p.type],
-      typeClass: p.type === "lined" ? "bg-accent-50 text-accent-700" : "bg-mist text-graphite",
-      quantity: p.quantity,
-      quantityDisplay: String(p.quantity),
-      quantityClass: p.quantity === 0 ? "text-error" : "text-ink",
-      price: p.price,
-      priceDisplay: fmtMoney(p.price),
-      stockValue: p.quantity * p.price,
-      stockValueDisplay: fmtMoney(p.quantity * p.price),
-    }));
-    const totalUnits = s.products.reduce((a, p) => a + p.quantity, 0);
-    const stockValue = s.products.reduce((a, p) => a + p.quantity * p.price, 0);
-    const outOfStockCount = s.products.filter((p) => p.quantity === 0).length;
-    const uniqueSorted = (values: string[]) => [...new Set(values)].sort((a, b) => a.localeCompare(b));
-    const editingProduct = s.editId && s.dialog === "product" ? s.products.find((p) => p.id === s.editId) : null;
-
-    const deliveryProviderById = new Map(s.deliveryProviders.map((x) => [x.id, x]));
-    const paymentMethodById = new Map(s.paymentMethods.map((x) => [x.id, x]));
-    const ordersInRange = s.orders.filter((o) => inRange(o.orderDate, s.dateStart, s.dateEnd));
-    const orderCountLabel = (n: number) => n + " order" + (n === 1 ? "" : "s");
-
-    const deliveryProviderRows = s.deliveryProviders.map((x) => {
-      const linked = s.orders.filter((o) => o.deliveryProviderId === x.id);
-      const inRangeCharges = linked.filter((o) => inRange(o.orderDate, s.dateStart, s.dateEnd)).reduce((a, o) => a + o.deliveryCharge, 0);
-      return { id: x.id, name: x.name, usageCount: linked.length, usageLabel: orderCountLabel(linked.length), inRangeCharges, inRangeDisplay: fmtMoney(inRangeCharges) };
-    });
-    const providerDeliveryCharges = deliveryProviderRows.reduce((a, r) => a + r.inRangeCharges, 0);
-    const ordersWithoutProvider = ordersInRange.filter((o) => !o.deliveryProviderId).length;
-    const editingDeliveryProvider =
-      s.editId && s.dialog === "deliveryProvider" ? s.deliveryProviders.find((x) => x.id === s.editId) : null;
-
-    const paymentMethodRows = s.paymentMethods.map((x) => {
-      const linked = s.orders.filter((o) => o.paymentMethodId === x.id);
-      const inRangeValue = linked.filter((o) => inRange(o.orderDate, s.dateStart, s.dateEnd)).reduce((a, o) => a + o.totalPrice, 0);
-      return { id: x.id, name: x.name, usageCount: linked.length, usageLabel: orderCountLabel(linked.length), inRangeValue, inRangeDisplay: fmtMoney(inRangeValue) };
-    });
-    const methodOrderValue = paymentMethodRows.reduce((a, r) => a + r.inRangeValue, 0);
-    const ordersWithoutMethod = ordersInRange.filter((o) => !o.paymentMethodId).length;
-    const editingPaymentMethod = s.editId && s.dialog === "paymentMethod" ? s.paymentMethods.find((x) => x.id === s.editId) : null;
-
-    const productById = new Map(s.products.map((p) => [p.id, p]));
-    const productLabel = (p: Product) => `${p.name} · ${p.color}, ${PAPER_TYPE_LABELS[p.type]}`;
-    const orderRows = ordersInRange
-      .slice()
-      .sort((a, b) => b.orderDate.localeCompare(a.orderDate) || b.orderNumber.localeCompare(a.orderNumber))
-      .map((o) => {
-        const units = o.items.reduce((a, i) => a + i.quantity, 0);
-        const next = NEXT_ORDER_STATUS[o.status];
-        return {
-          id: o.id,
-          orderNumber: o.orderNumber,
-          orderDate: o.orderDate,
-          dateDisplay: fmtDate(o.orderDate),
-          customer: customerName(o.customerId),
-          deliveryLocation: o.deliveryLocation,
-          deliveryProvider: o.deliveryProviderId ? (deliveryProviderById.get(o.deliveryProviderId)?.name ?? "Unknown provider") : null,
-          paymentMethod: o.paymentMethodId ? (paymentMethodById.get(o.paymentMethodId)?.name ?? "Unknown method") : null,
-          itemsSummary: o.items
-            .map((i) => {
-              const p = productById.get(i.productId);
-              return `${i.quantity} × ${p ? productLabel(p) : "Unknown product"}`;
-            })
-            .join(", "),
-          unitsLabel: units + " unit" + (units === 1 ? "" : "s"),
-          totalPrice: o.totalPrice,
-          totalDisplay: fmtMoney(o.totalPrice),
-          deliveryCharge: o.deliveryCharge,
-          deliveryDisplay: o.deliveryCharge > 0 ? "incl. " + fmtMoney(o.deliveryCharge) + " delivery" : null,
-          amountPaid: o.amountPaid,
-          paidDisplay: fmtMoney(o.amountPaid),
-          dueAmount: o.totalPrice - o.amountPaid,
-          dueDisplay: o.paymentStatus === "paid" ? null : fmtMoney(o.totalPrice - o.amountPaid) + " due",
-          status: ORDER_STATUS_LABELS[o.status],
-          statusClass: ORDER_STATUS_CLASSES[o.status],
-          paymentStatus: PAYMENT_STATUS_LABELS[o.paymentStatus],
-          paymentStatusClass: PAYMENT_STATUS_CLASSES[o.paymentStatus],
-          nextStepLabel: next?.label ?? null,
-          showRecordPayment: o.paymentStatus !== "paid",
-        };
-      });
-    const orderRevenue = ordersInRange.reduce((a, o) => a + o.totalPrice, 0);
-    const orderBalanceDue = ordersInRange.reduce((a, o) => a + (o.totalPrice - o.amountPaid), 0);
-    const openOrderCount = ordersInRange.filter((o) => o.status !== "delivered").length;
-    const editingOrder = s.editId && s.dialog === "order" ? s.orders.find((o) => o.id === s.editId) : null;
+    const categoryOptions = (type: TxnType) => l.categories.filter((c) => c.type === type).map((c) => ({ id: c.id, name: c.name }));
+    const channelOptions = (type: TxnType) => l.channels.filter((c) => c.type === type).map((c) => ({ id: c.id, name: c.name }));
+    const editing = <T extends { id: string }>(kind: DialogKind, list: T[]): T | null =>
+      s.dialog === kind && s.editId ? (list.find((x) => x.id === s.editId) ?? null) : null;
 
     // New payments default to the order's last payment's category and channel,
     // else to the "Order Sales" category (added by the orders migration).
-    const incomeCategories = s.categories.filter((c) => c.type === "income");
+    const incomeCategories = l.categories.filter((c) => c.type === "income");
     const defaultPaymentCategoryId = (incomeCategories.find((c) => c.name === "Order Sales") ?? incomeCategories[0])?.id ?? "";
-    const payingOrder = s.editId && s.dialog === "payment" ? s.orders.find((o) => o.id === s.editId) : null;
-    const lastPayment = payingOrder
-      ? s.transactions.filter((t) => t.orderId === payingOrder.id).reduce<Transaction | null>((m, t) => (!m || t.date >= m.date ? t : m), null)
-      : null;
-    const paymentDialog = payingOrder
+    const target = s.dialog === "payment" ? s.paymentTarget : null;
+    const paymentDialog = target
       ? {
-        orderNumber: payingOrder.orderNumber,
-        totalDisplay: fmtMoney(payingOrder.totalPrice),
-        paidDisplay: fmtMoney(payingOrder.amountPaid),
-        balance: roundMoney(payingOrder.totalPrice - payingOrder.amountPaid),
-        categoryId: lastPayment?.categoryId ?? defaultPaymentCategoryId,
-        channelId: lastPayment?.channelId ?? "",
-      }
+          orderNumber: target.orderNumber,
+          totalDisplay: fmtMoney(target.totalPrice),
+          paidDisplay: fmtMoney(target.amountPaid),
+          balance: roundMoney(target.totalPrice - target.amountPaid),
+          categoryId: target.categoryId ?? defaultPaymentCategoryId,
+          channelId: target.channelId ?? "",
+        }
       : null;
 
     return {
-      incomeDisplay: fmtMoney(totalIncome),
-      expenseDisplay: fmtMoney(totalExpense),
-      netDisplay: fmtMoney(netIncome),
-      incomeDelta: incD,
-      expenseDelta: expD,
-      netDelta: netD,
-
-      isBarChart: false,
-      isLineChart: true,
-      chart,
-
-      categoryBreakdown,
-      categoryBreakdownEmpty: categoryBreakdown.length === 0,
-      recentTransactions,
-
       incomeCategoryOptions: categoryOptions("income"),
       expenseCategoryOptions: categoryOptions("expense"),
-      transactionsList,
-      transactionsEmpty: transactionsList.length === 0,
-      transactionsCountLabel: transactionsList.length + " transaction" + (transactionsList.length === 1 ? "" : "s"),
-
-      budgetRows,
-      totalBudgetDisplay: fmtMoney(totalBudgetTarget),
-      totalActualDisplay: fmtMoney(totalBudgetActual),
-      totalRemainingDisplay: fmtMoney(totalBudgetTarget - totalBudgetActual),
-      monthsInRangeLabel: monthsInRange + " month" + (monthsInRange === 1 ? "" : "s"),
-
-      invoicesList,
-      outstandingDisplay: fmtMoney(totalOutstanding),
-      overdueCountDisplay: String(overdueCount),
-      paidDisplay: fmtMoney(paidTotal),
-
-      customerRows,
-      customersEmpty: customerRows.length === 0,
-      customerCountDisplay: String(customerRows.length),
-      customerIncomeDisplay: fmtMoney(customerIncomeInRange),
-      unlinkedIncomeDisplay: fmtMoney(unlinkedIncome),
-      topCustomerDisplay: topCustomer ? topCustomer.name : "—",
-      customerOptions: s.customers.map((c) => ({ id: c.id, name: c.name })),
-
-      editingTxn,
-      editingBudget,
-      editingInvoice,
-      editingCustomer,
-      editingCategory,
-      incomeCategoryRows: categoryRows("income"),
-      expenseCategoryRows: categoryRows("expense"),
       txnCategoryOptions: categoryOptions(s.txnFormType),
-      editingChannel,
-      incomeChannelRows: channelRows("income"),
-      expenseChannelRows: channelRows("expense"),
       txnChannelOptions: channelOptions(s.txnFormType),
-      editingSource,
-      sourceRows,
-      sourcesEmpty: sourceRows.length === 0,
-      sourceCountDisplay: String(sourceRows.length),
-      sourcedExpenseDisplay: fmtMoney(sourcedExpense),
-      unsourcedExpenseDisplay: fmtMoney(totalExpense - sourcedExpense),
-      sourceOptions: s.sources.map((x) => ({ id: x.id, name: x.name })),
-
-      editingDeliveryProvider,
-      deliveryProviderRows,
-      deliveryProvidersEmpty: deliveryProviderRows.length === 0,
-      deliveryProviderCountDisplay: String(deliveryProviderRows.length),
-      providerDeliveryChargesDisplay: fmtMoney(providerDeliveryCharges),
-      ordersWithoutProviderDisplay: String(ordersWithoutProvider),
-      deliveryProviderOptions: s.deliveryProviders.map((x) => ({ id: x.id, name: x.name })),
-
-      editingPaymentMethod,
-      paymentMethodRows,
-      paymentMethodsEmpty: paymentMethodRows.length === 0,
-      paymentMethodCountDisplay: String(paymentMethodRows.length),
-      methodOrderValueDisplay: fmtMoney(methodOrderValue),
-      ordersWithoutMethodDisplay: String(ordersWithoutMethod),
-      paymentMethodOptions: s.paymentMethods.map((x) => ({ id: x.id, name: x.name })),
-
-      productRows,
-      productsEmpty: productRows.length === 0,
-      productCountDisplay: String(productRows.length),
-      unitsInStockDisplay: String(totalUnits),
-      stockValueDisplay: fmtMoney(stockValue),
-      outOfStockDisplay: String(outOfStockCount),
-      productNameOptions: uniqueSorted(s.products.map((p) => p.name)),
-      productColorOptions: uniqueSorted(s.products.map((p) => p.color)),
-      editingProduct,
-
-      orderRows,
-      ordersEmpty: orderRows.length === 0,
-      orderCountDisplay: String(orderRows.length),
-      orderRevenueDisplay: fmtMoney(orderRevenue),
-      orderBalanceDueDisplay: fmtMoney(orderBalanceDue),
-      openOrderCountDisplay: String(openOrderCount),
-      orderProductOptions: s.products.map((p) => ({ id: p.id, label: productLabel(p), price: p.price })),
-      editingOrder,
-      defaultPaymentCategoryId,
       incomeChannelOptions: channelOptions("income"),
+      customerOptions: l.customers.map((c) => ({ id: c.id, name: c.name })),
+      sourceOptions: l.sources.map((x) => ({ id: x.id, name: x.name })),
+      deliveryProviderOptions: l.deliveryProviders.map((x) => ({ id: x.id, name: x.name })),
+      paymentMethodOptions: l.paymentMethods.map((x) => ({ id: x.id, name: x.name })),
+      orderProductOptions: l.products.flatMap((p) =>
+        p.variants.map((v) => {
+          const label = variantLabel(p.optionNames, v.options);
+          return { id: v.id, label: label ? `${p.name} · ${label}` : p.name, price: v.price };
+        }),
+      ),
+      productOptionNameOptions: [...new Set(l.products.flatMap((p) => p.optionNames))].sort((a, b) => a.localeCompare(b)),
+      // Options whose values come from a fixed list (keyed by lower-cased option name).
+      productOptionValueOptions: { type: ["Lined", "Blank"] } as Record<string, string[]>,
+      defaultPaymentCategoryId,
+
+      editingTxn: s.dialog === "txn" ? s.editingTxn : null,
+      editingBudget: editing("budget", l.budgets),
+      editingInvoice: s.dialog === "invoice" ? s.editingInvoice : null,
+      editingCustomer: editing("customer", l.customers),
+      editingCategory: editing("category", l.categories),
+      editingChannel: editing("channel", l.channels),
+      editingSource: editing("source", l.sources),
+      editingDeliveryProvider: editing("deliveryProvider", l.deliveryProviders),
+      editingPaymentMethod: editing("paymentMethod", l.paymentMethods),
       paymentDialog,
     };
-  }, [s]);
+  }, [s, l]);
 }

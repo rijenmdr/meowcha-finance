@@ -1,11 +1,10 @@
-"use client";
-
-import { useDashboardData } from "@/lib/finance-context";
+import { getSourcesPage } from "@/lib/page-data";
+import { toSearchParams } from "@/lib/table-params";
 import { StatCard } from "@/components/StatCard";
 import { SourcesTable } from "@/components/SourcesTable";
 
-export default function SourcesPage() {
-  const data = useDashboardData();
+export default async function SourcesPage({ searchParams }: PageProps<"/sources">) {
+  const data = await getSourcesPage(toSearchParams(await searchParams));
 
   return (
     <div>
@@ -14,7 +13,7 @@ export default function SourcesPage() {
         <StatCard label="Sourced expenses" value={data.sourcedExpenseDisplay} tinted />
         <StatCard label="Unsourced expenses" value={data.unsourcedExpenseDisplay} />
       </div>
-      <SourcesTable rows={data.sourceRows} empty={data.sourcesEmpty} />
+      <SourcesTable rows={data.rows} empty={data.sourcesEmpty} />
     </div>
   );
 }

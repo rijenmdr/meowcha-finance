@@ -1,11 +1,10 @@
-"use client";
-
-import { useDashboardData } from "@/lib/finance-context";
+import { getOrdersPage } from "@/lib/page-data";
+import { toSearchParams } from "@/lib/table-params";
 import { StatCard } from "@/components/StatCard";
 import { OrdersTable } from "@/components/OrdersTable";
 
-export default function OrdersPage() {
-  const data = useDashboardData();
+export default async function OrdersPage({ searchParams }: PageProps<"/orders">) {
+  const data = await getOrdersPage(toSearchParams(await searchParams));
 
   return (
     <div>
@@ -15,7 +14,7 @@ export default function OrdersPage() {
         <StatCard label="Balance due" value={data.orderBalanceDueDisplay} />
         <StatCard label="Not yet delivered" value={data.openOrderCountDisplay} />
       </div>
-      <OrdersTable rows={data.orderRows} empty={data.ordersEmpty} />
+      <OrdersTable rows={data.rows} total={data.total} query={data.query} />
     </div>
   );
 }

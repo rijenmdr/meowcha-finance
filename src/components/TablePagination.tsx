@@ -1,13 +1,14 @@
 import { useId } from "react";
 import type { Table } from "@tanstack/react-table";
+import { Button } from "@/components/ui/button";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 
 interface TablePaginationProps<TData> {
     table: Table<TData>;
 }
 
 const buttonClass =
-    "min-w-14 cursor-pointer border border-line px-2 py-1 text-11 text-ink transition-colors hover:border-accent-400 hover:text-accent-700 disabled:cursor-not-allowed disabled:opacity-45";
-const selectClass = "min-h-7 border border-line bg-surface px-2 py-1 text-11 text-ink";
+    "min-w-14 font-sans font-normal text-ink hover:border-accent-400 hover:bg-transparent hover:text-accent-700 disabled:cursor-not-allowed disabled:opacity-45";
 
 export function TablePagination<TData>({ table }: TablePaginationProps<TData>) {
     const selectId = useId();
@@ -33,25 +34,26 @@ export function TablePagination<TData>({ table }: TablePaginationProps<TData>) {
             </div>
             <div className="ml-auto flex items-center gap-2">
                 <label htmlFor={selectId}>Rows</label>
-                <select
+                <NativeSelect
                     id={selectId}
+                    size="sm"
                     value={pageSize}
                     onChange={(e) => table.setPageSize(Number(e.target.value))}
-                    className={selectClass}
+                    className="w-auto text-ink"
                 >
-                    <option value={10}>10</option>
-                    <option value={20}>20</option>
-                    <option value={50}>50</option>
-                </select>
-                <button type="button" onClick={() => table.previousPage()} disabled={!canPreviousPage} className={buttonClass}>
+                    <NativeSelectOption value={10}>10</NativeSelectOption>
+                    <NativeSelectOption value={20}>20</NativeSelectOption>
+                    <NativeSelectOption value={50}>50</NativeSelectOption>
+                </NativeSelect>
+                <Button type="button" variant="outline" size="xs" onClick={() => table.previousPage()} disabled={!canPreviousPage} className={buttonClass}>
                     Prev
-                </button>
+                </Button>
                 <div className="min-w-20 text-center text-ink/70">
                     {page} / {totalPages}
                 </div>
-                <button type="button" onClick={() => table.nextPage()} disabled={!canNextPage} className={buttonClass}>
+                <Button type="button" variant="outline" size="xs" onClick={() => table.nextPage()} disabled={!canNextPage} className={buttonClass}>
                     Next
-                </button>
+                </Button>
             </div>
         </div>
     );

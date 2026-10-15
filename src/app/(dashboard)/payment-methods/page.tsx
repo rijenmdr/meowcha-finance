@@ -1,11 +1,10 @@
-"use client";
-
-import { useDashboardData } from "@/lib/finance-context";
+import { getPaymentMethodsPage } from "@/lib/page-data";
+import { toSearchParams } from "@/lib/table-params";
 import { StatCard } from "@/components/StatCard";
 import { PaymentMethodsTable } from "@/components/PaymentMethodsTable";
 
-export default function PaymentMethodsPage() {
-  const data = useDashboardData();
+export default async function PaymentMethodsPage({ searchParams }: PageProps<"/payment-methods">) {
+  const data = await getPaymentMethodsPage(toSearchParams(await searchParams));
 
   return (
     <div>
@@ -14,7 +13,7 @@ export default function PaymentMethodsPage() {
         <StatCard label="Order value" value={data.methodOrderValueDisplay} tinted />
         <StatCard label="Orders without method" value={data.ordersWithoutMethodDisplay} />
       </div>
-      <PaymentMethodsTable rows={data.paymentMethodRows} empty={data.paymentMethodsEmpty} />
+      <PaymentMethodsTable rows={data.rows} empty={data.paymentMethodsEmpty} />
     </div>
   );
 }

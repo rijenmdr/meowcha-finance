@@ -1,13 +1,12 @@
-"use client";
-
-import { useDashboardData } from "@/lib/finance-context";
+import { getOverviewPage } from "@/lib/page-data";
+import { toSearchParams } from "@/lib/table-params";
 import { SummaryCard } from "@/components/SummaryCard";
 import { CashFlowChart } from "@/components/CashFlowChart";
 import { CategoryBreakdown } from "@/components/CategoryBreakdown";
 import { RecentTransactions } from "@/components/RecentTransactions";
 
-export default function OverviewPage() {
-  const data = useDashboardData();
+export default async function OverviewPage({ searchParams }: PageProps<"/overview">) {
+  const data = await getOverviewPage(toSearchParams(await searchParams));
 
   return (
     <div>
@@ -17,7 +16,7 @@ export default function OverviewPage() {
         <SummaryCard label="Net income" value={data.netDisplay} valueClass="text-accent-800" delta={data.netDelta} tinted />
       </div>
 
-      <CashFlowChart chart={data.chart} isBarChart={data.isBarChart} />
+      <CashFlowChart buckets={data.cashFlow} isBarChart={data.isBarChart} />
 
       <div className="grid grid-cols-[1fr_1.3fr] gap-4.5">
         <CategoryBreakdown rows={data.categoryBreakdown} empty={data.categoryBreakdownEmpty} />

@@ -1,13 +1,18 @@
 "use client";
 
-import { useFinance, useDashboardData } from "@/lib/finance-context";
-import { TODAY } from "@/lib/mock-data";
-import { DialogOverlay, dialogTitleClass, fieldHintClass, fieldLabelClass, inputClass } from "./DialogOverlay";
+import { useId } from "react";
+import { useFinance, useLookups } from "@/lib/finance-context";
+import { todayISO } from "@/lib/format";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { DialogOverlay } from "./DialogOverlay";
 
 // Records one more payment towards an order, saved as an income transaction.
 export function PaymentDialog() {
   const { submitPayment } = useFinance();
-  const { paymentDialog, incomeCategoryOptions, incomeChannelOptions } = useDashboardData();
+  const { paymentDialog, incomeCategoryOptions, incomeChannelOptions } = useLookups();
+  const id = useId();
   if (!paymentDialog) return null;
 
   function handleSubmit(fd: FormData) {
@@ -20,16 +25,17 @@ export function PaymentDialog() {
   }
 
   return (
-    <DialogOverlay className="max-w-110" onSubmit={handleSubmit}>
-      <div className={dialogTitleClass}>Record payment · {paymentDialog.orderNumber}</div>
-      <div className="text-13 text-ink/60">
-        {paymentDialog.paidDisplay} of {paymentDialog.totalDisplay} paid so far.
-      </div>
-
+    <DialogOverlay
+      title={`Record payment · ${paymentDialog.orderNumber}`}
+      description={`${paymentDialog.paidDisplay} of ${paymentDialog.totalDisplay} paid so far.`}
+      className="max-w-110"
+      onSubmit={handleSubmit}
+    >
       <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className={fieldLabelClass}>Amount (Rs)</label>
-          <input
+        <Field>
+          <FieldLabel htmlFor={`${id}-amount`}>Amount (Rs)</FieldLabel>
+          <Input
+            id={`${id}-amount`}
             type="number"
             name="amount"
             min="0.01"
@@ -37,39 +43,38 @@ export function PaymentDialog() {
             step="0.01"
             defaultValue={paymentDialog.balance}
             required
-            className={inputClass}
           />
-        </div>
-        <div>
-          <label className={fieldLabelClass}>Date</label>
-          <input type="date" name="date" defaultValue={TODAY} required className={inputClass} />
-        </div>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor={`${id}-date`}>Date</FieldLabel>
+          <Input id={`${id}-date`} type="date" name="date" defaultValue={todayISO()} required />
+        </Field>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className={fieldLabelClass}>Income category</label>
-          <select name="categoryId" defaultValue={paymentDialog.categoryId} required className={inputClass}>
+        <Field>
+          <FieldLabel htmlFor={`${id}-category`}>Income category</FieldLabel>
+          <NativeSelect id={`${id}-category`} name="categoryId" defaultValue={paymentDialog.categoryId} required>
             {incomeCategoryOptions.map((c) => (
-              <option key={c.id} value={c.id}>
+              <NativeSelectOption key={c.id} value={c.id}>
                 {c.name}
-              </option>
+              </NativeSelectOption>
             ))}
-          </select>
-        </div>
-        <div>
-          <label className={fieldLabelClass}>Channel (optional)</label>
-          <select name="channelId" defaultValue={paymentDialog.channelId} className={inputClass}>
-            <option value="">No channel</option>
+          </NativeSelect>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor={`${id}-channel`}>Channel (optional)</FieldLabel>
+          <NativeSelect id={`${id}-channel`} name="channelId" defaultValue={paymentDialog.channelId}>
+            <NativeSelectOption value="">No channel</NativeSelectOption>
             {incomeChannelOptions.map((c) => (
-              <option key={c.id} value={c.id}>
+              <NativeSelectOption key={c.id} value={c.id}>
                 {c.name}
-              </option>
+              </NativeSelectOption>
             ))}
-          </select>
-        </div>
+          </NativeSelect>
+        </Field>
       </div>
-      <div className={fieldHintClass}>Saved as an income transaction linked to this order.</div>
+      <FieldDescription>Saved as an income transaction linked to this order.</FieldDescription>
     </DialogOverlay>
   );
 }

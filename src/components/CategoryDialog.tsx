@@ -1,12 +1,17 @@
 "use client";
 
-import { useFinance, useDashboardData } from "@/lib/finance-context";
+import { useId } from "react";
+import { useFinance, useLookups } from "@/lib/finance-context";
 import type { TxnType } from "@/lib/types";
-import { DialogOverlay, dialogTitleClass, fieldHintClass, fieldLabelClass, inputClass } from "./DialogOverlay";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { DialogOverlay } from "./DialogOverlay";
 
 export function CategoryDialog() {
   const { state, submitCategory } = useFinance();
-  const { editingCategory } = useDashboardData();
+  const { editingCategory } = useLookups();
+  const id = useId();
 
   function handleSubmit(fd: FormData) {
     return submitCategory({
@@ -16,39 +21,34 @@ export function CategoryDialog() {
   }
 
   return (
-    <DialogOverlay className="max-w-105" onSubmit={handleSubmit}>
-      <div className={dialogTitleClass}>{editingCategory ? "Edit category" : "Add category"}</div>
-
-      <div>
-        <label className={fieldLabelClass}>Type</label>
-        <select
+    <DialogOverlay title={editingCategory ? "Edit category" : "Add category"} className="max-w-105" onSubmit={handleSubmit}>
+      <Field>
+        <FieldLabel htmlFor={`${id}-type`}>Type</FieldLabel>
+        <NativeSelect
+          id={`${id}-type`}
           name="type"
           defaultValue={editingCategory ? editingCategory.type : state.txnFormType}
           disabled={!!editingCategory}
-          className={inputClass}
         >
-          <option value="income">Income</option>
-          <option value="expense">Expense</option>
-        </select>
-      </div>
+          <NativeSelectOption value="income">Income</NativeSelectOption>
+          <NativeSelectOption value="expense">Expense</NativeSelectOption>
+        </NativeSelect>
+      </Field>
 
-      <div>
-        <label className={fieldLabelClass}>Name</label>
-        <input
+      <Field>
+        <FieldLabel htmlFor={`${id}-name`}>Name</FieldLabel>
+        <Input
+          id={`${id}-name`}
           type="text"
           name="name"
           defaultValue={editingCategory ? editingCategory.name : ""}
           required
           pattern=".*\S.*"
-          className={inputClass}
         />
         {editingCategory && (
-          <div className={fieldHintClass}>
-            Renaming updates every transaction and budget that uses this category.
-          </div>
+          <FieldDescription>Renaming updates every transaction and budget that uses this category.</FieldDescription>
         )}
-      </div>
-
+      </Field>
     </DialogOverlay>
   );
 }

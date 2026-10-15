@@ -1,5 +1,6 @@
 "use server";
 
+import { refresh } from "next/cache";
 import { getSupabase } from "./supabase";
 import { requireSupabaseUser } from "./supabase-auth";
 import type {
@@ -11,6 +12,7 @@ import type {
   Invoice,
   Order,
   OrderPayment,
+  OrderStatus,
   PaymentMethod,
   Product,
   Source,
@@ -26,6 +28,7 @@ import {
   parseInvoice,
   parseOrder,
   parseOrderPayment,
+  parseOrderStatus,
   parsePaymentMethod,
   parseProduct,
   parseSource,
@@ -50,12 +53,14 @@ export async function saveTransactionAction(input: Transaction): Promise<void> {
       order_id: orderId,
     });
   if (error) throw new Error(error.message);
+  refresh();
 }
 
 export async function deleteTransactionAction(id: string): Promise<void> {
   await requireSession();
   const { error } = await getSupabase().from("transactions").delete().eq("id", parseId(id));
   if (error) throw new Error(error.message);
+  refresh();
 }
 
 export async function saveBudgetAction(input: Budget): Promise<void> {
@@ -73,12 +78,14 @@ export async function saveBudgetAction(input: Budget): Promise<void> {
 
   const { error } = await db.from("budgets").upsert({ id: budget.id, category_id: budget.categoryId, target: budget.target });
   if (error) throw new Error(error.message);
+  refresh();
 }
 
 export async function deleteBudgetAction(id: string): Promise<void> {
   await requireSession();
   const { error } = await getSupabase().from("budgets").delete().eq("id", parseId(id));
   if (error) throw new Error(error.message);
+  refresh();
 }
 
 export async function saveInvoiceAction(input: Invoice): Promise<void> {
@@ -95,6 +102,7 @@ export async function saveInvoiceAction(input: Invoice): Promise<void> {
       paid: invoice.paid,
     });
   if (error) throw new Error(error.message);
+  refresh();
 }
 
 export async function saveCategoryAction(input: Category): Promise<void> {
@@ -102,12 +110,14 @@ export async function saveCategoryAction(input: Category): Promise<void> {
   const category = parseCategory(input);
   const { error } = await getSupabase().from("categories").upsert(category);
   if (error) throw new Error(error.message);
+  refresh();
 }
 
 export async function deleteCategoryAction(id: string): Promise<void> {
   await requireSession();
   const { error } = await getSupabase().from("categories").delete().eq("id", parseId(id));
   if (error) throw new Error(error.message);
+  refresh();
 }
 
 export async function saveChannelAction(input: Channel): Promise<void> {
@@ -115,12 +125,14 @@ export async function saveChannelAction(input: Channel): Promise<void> {
   const channel = parseChannel(input);
   const { error } = await getSupabase().from("channels").upsert(channel);
   if (error) throw new Error(error.message);
+  refresh();
 }
 
 export async function deleteChannelAction(id: string): Promise<void> {
   await requireSession();
   const { error } = await getSupabase().from("channels").delete().eq("id", parseId(id));
   if (error) throw new Error(error.message);
+  refresh();
 }
 
 export async function saveSourceAction(input: Source): Promise<void> {
@@ -128,12 +140,14 @@ export async function saveSourceAction(input: Source): Promise<void> {
   const source = parseSource(input);
   const { error } = await getSupabase().from("sources").upsert(source);
   if (error) throw new Error(error.message);
+  refresh();
 }
 
 export async function deleteSourceAction(id: string): Promise<void> {
   await requireSession();
   const { error } = await getSupabase().from("sources").delete().eq("id", parseId(id));
   if (error) throw new Error(error.message);
+  refresh();
 }
 
 export async function saveDeliveryProviderAction(input: DeliveryProvider): Promise<void> {
@@ -141,12 +155,14 @@ export async function saveDeliveryProviderAction(input: DeliveryProvider): Promi
   const provider = parseDeliveryProvider(input);
   const { error } = await getSupabase().from("delivery_providers").upsert(provider);
   if (error) throw new Error(error.message);
+  refresh();
 }
 
 export async function deleteDeliveryProviderAction(id: string): Promise<void> {
   await requireSession();
   const { error } = await getSupabase().from("delivery_providers").delete().eq("id", parseId(id));
   if (error) throw new Error(error.message);
+  refresh();
 }
 
 export async function savePaymentMethodAction(input: PaymentMethod): Promise<void> {
@@ -154,12 +170,14 @@ export async function savePaymentMethodAction(input: PaymentMethod): Promise<voi
   const method = parsePaymentMethod(input);
   const { error } = await getSupabase().from("payment_methods").upsert(method);
   if (error) throw new Error(error.message);
+  refresh();
 }
 
 export async function deletePaymentMethodAction(id: string): Promise<void> {
   await requireSession();
   const { error } = await getSupabase().from("payment_methods").delete().eq("id", parseId(id));
   if (error) throw new Error(error.message);
+  refresh();
 }
 
 export async function saveCustomerAction(input: Customer): Promise<void> {
@@ -167,36 +185,45 @@ export async function saveCustomerAction(input: Customer): Promise<void> {
   const customer = parseCustomer(input);
   const { error } = await getSupabase().from("customers").upsert(customer);
   if (error) throw new Error(error.message);
+  refresh();
 }
 
 export async function deleteCustomerAction(id: string): Promise<void> {
   await requireSession();
   const { error } = await getSupabase().from("customers").delete().eq("id", parseId(id));
   if (error) throw new Error(error.message);
+  refresh();
 }
 
 export async function saveProductAction(input: Product): Promise<void> {
   await requireSession();
   const product = parseProduct(input);
-  const { error } = await getSupabase().from("products").upsert(product);
+  // An RPC so the product and its variants save atomically.
+  const { error } = await getSupabase().rpc("save_product", {
+    p_product: { id: product.id, name: product.name, option_names: product.optionNames },
+    p_variants: product.variants.map((v) => ({ id: v.id, options: v.options, quantity: v.quantity, price: v.price })),
+  });
   if (error) throw new Error(error.message);
+  refresh();
 }
 
 export async function deleteProductAction(id: string): Promise<void> {
   await requireSession();
   const { error } = await getSupabase().from("products").delete().eq("id", parseId(id));
   if (error) throw new Error(error.message);
+  refresh();
 }
 
 export async function deleteInvoiceAction(id: string): Promise<void> {
   await requireSession();
   const { error } = await getSupabase().from("invoices").delete().eq("id", parseId(id));
   if (error) throw new Error(error.message);
+  refresh();
 }
 
 // Returns the order number, which the DB assigns when the order is first saved.
 // payment, when given, is recorded as the order's first payment (an income transaction).
-export async function saveOrderAction(input: Omit<Order, "orderNumber">, payment: OrderPayment | null): Promise<string> {
+export async function saveOrderAction(input: Omit<Order, "orderNumber" | "stockTracked">, payment: OrderPayment | null): Promise<string> {
   await requireSession();
   const order = parseOrder(input);
   const firstPayment = payment === null ? null : parseOrderPayment(payment);
@@ -214,13 +241,14 @@ export async function saveOrderAction(input: Omit<Order, "orderNumber">, payment
     },
     p_items: order.items.map((item) => ({
       id: item.id,
-      product_id: item.productId,
+      variant_id: item.variantId,
       quantity: item.quantity,
       sub_total: item.subTotal,
     })),
     p_payment: firstPayment && paymentRow(firstPayment),
   });
   if (error) throw new Error(error.message);
+  refresh();
   return data as string;
 }
 
@@ -231,6 +259,7 @@ export async function recordOrderPaymentAction(orderId: string, input: OrderPaym
     p_payment: paymentRow(parseOrderPayment(input)),
   });
   if (error) throw new Error(error.message);
+  refresh();
 }
 
 function paymentRow(payment: OrderPayment) {
@@ -248,4 +277,17 @@ export async function deleteOrderAction(id: string): Promise<void> {
   // order_items go with it (on delete cascade).
   const { error } = await getSupabase().from("orders").delete().eq("id", parseId(id));
   if (error) throw new Error(error.message);
+  refresh();
+}
+
+// The Orders table's one-click status step. Only the status changes, so the
+// items (and the stock they hold) are left alone.
+export async function setOrderStatusAction(id: string, status: OrderStatus): Promise<void> {
+  await requireSession();
+  const { error } = await getSupabase()
+    .from("orders")
+    .update({ order_status: parseOrderStatus(status) })
+    .eq("id", parseId(id));
+  if (error) throw new Error(error.message);
+  refresh();
 }

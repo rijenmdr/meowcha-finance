@@ -1,14 +1,19 @@
-import { flexRender, type ColumnDef } from "@tanstack/react-table";
-import { cx } from "@/lib/cx";
-import { useMemo } from "react";
-import { useDataTable } from "@/lib/use-data-table";
+"use client";
+
+import type { ColumnDef } from "@tanstack/react-table";
+import { cn } from "@/lib/utils";
+import { useMemo, useOptimistic } from "react";
+import { useServerDataTable } from "@/lib/use-data-table";
+import type { TableQuery } from "@/lib/table-params";
+import type { Transaction } from "@/lib/types";
 import { Panel } from "./Panel";
 import { DeleteButton, EditButton } from "./IconButton";
-import { useFinance } from "@/lib/finance-context";
+import { useFinance, useLookups, useOptimisticRows } from "@/lib/finance-context";
 import { SortableHeader } from "./SortableHeader";
 import { TablePagination } from "./TablePagination";
+import { DataTable } from "./DataTable";
 
-interface TxnRow {
+export interface TxnRow {
   id: string;
   date: string;
   dateDisplay: string;
@@ -17,39 +22,49 @@ interface TxnRow {
   channel: string;
   customerName: string | null;
   sourceName: string | null;
+  orderNumber: string | null;
   amount: number;
   amountDisplay: string;
   amountClass: string;
   tagClass: string;
+  txn: Transaction;
 }
 
-interface CategoryOption {
-  id: string;
-  name: string;
-}
+type TypeFilter = "all" | "income" | "expense";
 
 const filterLabelClass = "text-11 text-ink/60";
 const selectClass = "min-h-8.5 border border-line bg-surface px-2 py-1.25 text-13";
-const thClass = "border-b border-line px-4 py-2.5 text-10 tracking-[0.08em] text-ink/60 uppercase";
-const tdClass = "border-b border-line-soft px-4 py-2.5";
+
+// The rows are one page from the server. Filters, sort and page live in the
+// URL (?type=…&category=…&sort=…&page=…), so changing one reloads the page.
 export function TransactionsTable({
   rows,
-  incomeCategories,
-  expenseCategories,
+  total,
+  query,
   filterType,
   filterCategory,
   countLabel,
-  empty,
 }: {
   rows: TxnRow[];
-  incomeCategories: CategoryOption[];
-  expenseCategories: CategoryOption[];
-  filterType: string;
+  total: number;
+  query: TableQuery;
+  filterType: TypeFilter;
   filterCategory: string;
   countLabel: string;
-  empty: boolean;
 }) {
-  const { setFilterType, setFilterCategory, openEditTxn, deleteTxn } = useFinance();
+  const { setSearch, openEditTxn, deleteTxn } = useFinance();
+  const { incomeCategoryOptions: incomeCategories, expenseCategoryOptions: expenseCategories } = useLookups();
+  // The selects show the new choice while the filtered page loads.
+  const [filters, setOptimisticFilters] = useOptimistic({ type: filterType, category: filterCategory });
+  const visibleRows = useOptimisticRows(rows);
+
+  function setFilters(next: { type: TypeFilter; category: string }) {
+    setSearch(
+      { type: next.type === "all" ? null : next.type, category: next.category === "all" ? null : next.category, page: null },
+      () => setOptimisticFilters(next),
+    );
+  }
+
   const columns = useMemo<ColumnDef<TxnRow>[]>(
     () => [
       {
@@ -76,7 +91,7 @@ export function TransactionsTable({
         header: ({ header }) => <SortableHeader header={header} title="Category" />,
         cell: ({ row }) => {
           const txn = row.original;
-          return <span className={cx("px-2 py-0.75 text-11", txn.tagClass)}>{txn.category}</span>;
+          return <span className={cn("px-2 py-0.75 text-11", txn.tagClass)}>{txn.category}</span>;
         },
       },
       {
@@ -89,7 +104,7 @@ export function TransactionsTable({
         header: ({ header }) => <SortableHeader header={header} title="Amount" align="right" />,
         cell: ({ row }) => {
           const txn = row.original;
-          return <span className={cx("text-right font-semibold whitespace-nowrap", txn.amountClass)}>{txn.amountDisplay}</span>;
+          return <span className={cn("text-right font-semibold whitespace-nowrap", txn.amountClass)}>{txn.amountDisplay}</span>;
         },
       },
       {
@@ -100,8 +115,8 @@ export function TransactionsTable({
           const txn = row.original;
           return (
             <div className="text-right whitespace-nowrap">
-              <EditButton onClick={() => openEditTxn(txn.id)} />
-              <DeleteButton onClick={() => deleteTxn(txn.id)} />
+              <EditButton onClick={() => openEditTxn(txn.txn)} />
+              <DeleteButton onClick={() => deleteTxn(txn)} />
             </div>
           );
         },
@@ -109,11 +124,7 @@ export function TransactionsTable({
     ],
     [deleteTxn, openEditTxn],
   );
-  const table = useDataTable({
-    data: rows,
-    columns,
-    initialSorting: [{ id: "date", desc: true }],
-  });
+  const table = useServerDataTable({ data: visibleRows, columns, rowCount: total, query });
 
   return (
     <div>
@@ -121,8 +132,9 @@ export function TransactionsTable({
         <div className="flex flex-col gap-1">
           <label className={filterLabelClass}>Type</label>
           <select
-            value={filterType}
-            onChange={(e) => setFilterType(e.target.value as "all" | "income" | "expense")}
+            value={filters.type}
+            // The category list depends on the type, so the selected category may no longer apply.
+            onChange={(e) => setFilters({ type: e.target.value as TypeFilter, category: "all" })}
             className={selectClass}
           >
             <option value="all">All types</option>
@@ -132,9 +144,9 @@ export function TransactionsTable({
         </div>
         <div className="flex flex-col gap-1">
           <label className={filterLabelClass}>Category</label>
-          <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} className={selectClass}>
+          <select value={filters.category} onChange={(e) => setFilters({ ...filters, category: e.target.value })} className={selectClass}>
             <option value="all">All categories</option>
-            {filterType !== "expense" && (
+            {filters.type !== "expense" && (
               <optgroup label="Income">
                 {incomeCategories.map((cat) => (
                   <option key={cat.id} value={cat.id}>
@@ -143,7 +155,7 @@ export function TransactionsTable({
                 ))}
               </optgroup>
             )}
-            {filterType !== "income" && (
+            {filters.type !== "income" && (
               <optgroup label="Expense">
                 {expenseCategories.map((cat) => (
                   <option key={cat.id} value={cat.id}>
@@ -158,42 +170,9 @@ export function TransactionsTable({
       </div>
 
       <Panel>
-        <table className="w-full text-13">
-          <thead>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <tr key={headerGroup.id}>
-                {headerGroup.headers.map((header) => {
-                  const headerClass = header.column.id === "amount" || header.column.id === "actions" ? "text-right" : "text-left";
-                  return (
-                    <th key={header.id} className={cx(thClass, headerClass)}>
-                      {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
-                    </th>
-                  );
-                })}
-              </tr>
-            ))}
-          </thead>
-          <tbody>
-            {table.getRowModel().rows.map((row) => (
-              <tr key={row.id}>
-                {row.getVisibleCells().map((cell) => {
-                  const cellClass = cell.column.id === "date"
-                    ? "whitespace-nowrap text-ink/60"
-                    : cell.column.id === "amount" || cell.column.id === "actions"
-                      ? "text-right"
-                      : "";
-                  return (
-                    <td key={cell.id} className={cx(tdClass, cellClass)}>
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <DataTable table={table} columnClasses={{ amount: "text-right", actions: "text-right" }} cellClasses={{ date: "whitespace-nowrap text-ink/60" }} />
         <TablePagination table={table} />
-        {empty && <div className="px-4 py-6 text-13 text-ink/55">No transactions match these filters.</div>}
+        {total === 0 && <div className="px-4 py-6 text-13 text-ink/55">No transactions match these filters.</div>}
       </Panel>
     </div>
   );

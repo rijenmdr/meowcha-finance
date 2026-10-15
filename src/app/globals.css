@@ -1,4 +1,8 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
 
 @theme {
   --text-*: initial;
@@ -21,7 +25,6 @@
   --color-line: rgb(29 31 32 / 0.16);
   --color-line-soft: rgb(29 31 32 / 0.08);
   --color-graphite: #424244;
-  --color-muted: #5d5d60;
   --color-mist: #f5f5f8;
   --color-shade: #2b2b2d;
   --color-error: #8a3b3b;
@@ -38,15 +41,108 @@
   --shadow-dialog: 0 12px 32px rgb(43 43 45 / 0.22);
   --shadow-card: 0 12px 32px rgb(43 43 45 / 0.12);
   --shadow-menu: 0 4px 16px rgb(29 31 32 / 0.16);
+
+  /* The brand is square-cornered, so every shadcn radius resolves to 0. */
+  --radius-xs: 0;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
+  --radius-2xl: 0;
+  --radius-3xl: 0;
+  --radius-4xl: 0;
 }
 
 /* next/font sets these variables on <html>, so the tokens must stay references. */
 @theme inline {
   --font-sans: var(--font-barlow), system-ui, sans-serif;
   --font-condensed: var(--font-barlow-condensed), system-ui, sans-serif;
+  --font-heading: var(--font-barlow-condensed), system-ui, sans-serif;
+
+  /* shadcn semantic tokens, mapped onto the brand palette in :root below. */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+/* Light only: the dashboard has no dark theme. */
+:root {
+  --radius: 0;
+  --background: var(--color-canvas);
+  --foreground: var(--color-ink);
+  --card: var(--color-canvas);
+  --card-foreground: var(--color-ink);
+  --popover: var(--color-canvas);
+  --popover-foreground: var(--color-ink);
+  --primary: var(--color-accent-500);
+  --primary-foreground: var(--color-canvas);
+  --secondary: var(--color-surface);
+  --secondary-foreground: var(--color-ink);
+  --muted: var(--color-surface);
+  --muted-foreground: #5d5d60;
+  --accent: color-mix(in oklab, var(--color-accent-500) 10%, transparent);
+  --accent-foreground: var(--color-ink);
+  --destructive: var(--color-error);
+  --border: var(--color-line);
+  --input: var(--color-line);
+  --ring: var(--color-accent-500);
+  --chart-1: var(--color-accent-500);
+  --chart-2: var(--color-accent-400);
+  --chart-3: var(--color-accent-300);
+  --chart-4: var(--color-accent-600);
+  --chart-5: var(--color-accent-700);
+  --sidebar: var(--color-surface);
+  --sidebar-foreground: var(--color-ink);
+  --sidebar-primary: var(--color-accent-500);
+  --sidebar-primary-foreground: var(--color-canvas);
+  --sidebar-accent: color-mix(in oklab, var(--color-accent-500) 10%, transparent);
+  --sidebar-accent-foreground: var(--color-ink);
+  --sidebar-border: var(--color-line);
+  --sidebar-ring: var(--color-accent-500);
 }
 
 @layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background font-sans text-foreground;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
   ::selection {
     background: color-mix(in oklab, var(--color-accent-500) 30%, transparent);
   }

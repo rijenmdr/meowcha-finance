@@ -1,11 +1,10 @@
-"use client";
-
-import { useDashboardData } from "@/lib/finance-context";
+import { getDeliveryProvidersPage } from "@/lib/page-data";
+import { toSearchParams } from "@/lib/table-params";
 import { StatCard } from "@/components/StatCard";
 import { DeliveryProvidersTable } from "@/components/DeliveryProvidersTable";
 
-export default function DeliveryProvidersPage() {
-  const data = useDashboardData();
+export default async function DeliveryProvidersPage({ searchParams }: PageProps<"/delivery-providers">) {
+  const data = await getDeliveryProvidersPage(toSearchParams(await searchParams));
 
   return (
     <div>
@@ -14,7 +13,7 @@ export default function DeliveryProvidersPage() {
         <StatCard label="Delivery charges" value={data.providerDeliveryChargesDisplay} tinted />
         <StatCard label="Orders without provider" value={data.ordersWithoutProviderDisplay} />
       </div>
-      <DeliveryProvidersTable rows={data.deliveryProviderRows} empty={data.deliveryProvidersEmpty} />
+      <DeliveryProvidersTable rows={data.rows} empty={data.deliveryProvidersEmpty} />
     </div>
   );
 }

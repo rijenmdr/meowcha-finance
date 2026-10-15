@@ -1,4 +1,5 @@
-import { cx } from "@/lib/cx";
+import { cn } from "@/lib/utils";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Panel } from "./Panel";
 
 interface RecentRow {
@@ -9,31 +10,28 @@ interface RecentRow {
   amountClass: string;
 }
 
-const thClass = "border-b border-line p-2.5 text-10 tracking-[0.08em] text-ink/60 uppercase";
-const tdClass = "border-b border-line-soft p-2.5";
-
 export function RecentTransactions({ rows }: { rows: RecentRow[] }) {
   return (
     <Panel className="p-5">
       <h3 className="mb-3.5 text-17 font-bold">Recent transactions</h3>
-      <table className="w-full text-13">
-        <thead>
-          <tr>
-            <th className={cx(thClass, "text-left")}>Date</th>
-            <th className={cx(thClass, "text-left")}>Description</th>
-            <th className={cx(thClass, "text-right")}>Amount</th>
-          </tr>
-        </thead>
-        <tbody>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="p-2.5">Date</TableHead>
+            <TableHead className="p-2.5">Description</TableHead>
+            <TableHead className="p-2.5 text-right">Amount</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody className="[&_tr:last-child]:border-b">
           {rows.map((t) => (
-            <tr key={t.id}>
-              <td className={cx(tdClass, "text-ink/60")}>{t.dateDisplay}</td>
-              <td className={tdClass}>{t.description}</td>
-              <td className={cx(tdClass, "text-right font-semibold", t.amountClass)}>{t.amountDisplay}</td>
-            </tr>
+            <TableRow key={t.id}>
+              <TableCell className="p-2.5 text-ink/60">{t.dateDisplay}</TableCell>
+              <TableCell className="p-2.5">{t.description}</TableCell>
+              <TableCell className={cn("p-2.5 text-right font-semibold", t.amountClass)}>{t.amountDisplay}</TableCell>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </Panel>
   );
 }

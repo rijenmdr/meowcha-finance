@@ -1,16 +1,22 @@
 "use client";
 
-import { cx } from "@/lib/cx";
-import { useFinance, useDashboardData } from "@/lib/finance-context";
-import { TODAY } from "@/lib/mock-data";
-import { DialogOverlay, dialogTitleClass, fieldHintClass, fieldLabelClass, inputClass } from "./DialogOverlay";
+import { useId } from "react";
+import { useFinance, useLookups } from "@/lib/finance-context";
+import { todayISO } from "@/lib/format";
+import type { TxnType } from "@/lib/types";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { DialogOverlay } from "./DialogOverlay";
 
-const toggleClass = "flex cursor-pointer items-center gap-1.5 px-3.5 py-1.75 text-13";
-const toggleActiveClass = "bg-accent-500 text-canvas";
+// The group variant would otherwise squeeze items to px-2 when spacing is 0.
+const toggleItemClass = "h-auto py-1.75 group-data-[spacing=0]/toggle-group:px-3.5";
 
 export function TxnDialog() {
   const { state, setTxnFormType, submitTxn } = useFinance();
-  const { editingTxn, txnCategoryOptions: categoryOptions, txnChannelOptions: channelOptions, customerOptions, sourceOptions } = useDashboardData();
+  const { editingTxn, txnCategoryOptions: categoryOptions, txnChannelOptions: channelOptions, customerOptions, sourceOptions } = useLookups();
+  const id = useId();
 
   const isIncome = state.txnFormType === "income";
 
@@ -27,127 +33,120 @@ export function TxnDialog() {
   }
 
   return (
-    <DialogOverlay className="max-w-115" onSubmit={handleSubmit}>
-      <div className={dialogTitleClass}>{editingTxn ? "Edit transaction" : "Add transaction"}</div>
-
-      <div className="inline-flex self-start border border-line">
-        <label className={cx(toggleClass, isIncome && toggleActiveClass)}>
-          <input
-            type="radio"
-            name="typeToggle"
-            checked={isIncome}
-            onChange={() => setTxnFormType("income")}
-            className="absolute size-0 opacity-0"
-          />
+    <DialogOverlay title={editingTxn ? "Edit transaction" : "Add transaction"} className="max-w-115" onSubmit={handleSubmit}>
+      <ToggleGroup
+        type="single"
+        variant="outline"
+        spacing={0}
+        aria-label="Transaction type"
+        value={state.txnFormType}
+        // Radix reports "" when the active item is clicked again; keep the current type.
+        onValueChange={(value) => value && setTxnFormType(value as TxnType)}
+      >
+        <ToggleGroupItem value="income" className={toggleItemClass}>
           Income
-        </label>
-        <label className={cx(toggleClass, "border-l border-line", !isIncome && toggleActiveClass)}>
-          <input
-            type="radio"
-            name="typeToggle"
-            checked={!isIncome}
-            onChange={() => setTxnFormType("expense")}
-            className="absolute size-0 opacity-0"
-          />
+        </ToggleGroupItem>
+        <ToggleGroupItem value="expense" className={toggleItemClass}>
           Expense
-        </label>
-      </div>
+        </ToggleGroupItem>
+      </ToggleGroup>
 
       <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className={fieldLabelClass}>Date</label>
-          <input type="date" name="date" defaultValue={editingTxn ? editingTxn.date : TODAY} required className={inputClass} />
-        </div>
-        <div>
-          <label className={fieldLabelClass}>Amount</label>
-          <input
+        <Field>
+          <FieldLabel htmlFor={`${id}-date`}>Date</FieldLabel>
+          <Input id={`${id}-date`} type="date" name="date" defaultValue={editingTxn ? editingTxn.date : todayISO()} required />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor={`${id}-amount`}>Amount</FieldLabel>
+          <Input
+            id={`${id}-amount`}
             type="number"
             step="0.01"
             min="0"
             name="amount"
             defaultValue={editingTxn ? editingTxn.amount : ""}
             required
-            className={inputClass}
           />
-        </div>
+        </Field>
       </div>
 
-      <div key={state.txnFormType}>
-        <label className={fieldLabelClass}>Category</label>
-        <select
+      <Field key={state.txnFormType}>
+        <FieldLabel htmlFor={`${id}-category`}>Category</FieldLabel>
+        <NativeSelect
+          id={`${id}-category`}
           name="categoryId"
           defaultValue={editingTxn && editingTxn.type === state.txnFormType ? editingTxn.categoryId : categoryOptions[0]?.id}
           required
-          className={inputClass}
         >
           {categoryOptions.map((cat) => (
-            <option key={cat.id} value={cat.id}>
+            <NativeSelectOption key={cat.id} value={cat.id}>
               {cat.name}
-            </option>
+            </NativeSelectOption>
           ))}
-        </select>
+        </NativeSelect>
         {categoryOptions.length === 0 && (
-          <div className={fieldHintClass}>
-            No {state.txnFormType} categories yet. Add one on the Categories page.
-          </div>
+          <FieldDescription>No {state.txnFormType} categories yet. Add one on the Categories page.</FieldDescription>
         )}
-      </div>
+      </Field>
 
-      <div>
-        <label className={fieldLabelClass}>Description</label>
-        <input type="text" name="description" defaultValue={editingTxn ? editingTxn.description : ""} required className={inputClass} />
-      </div>
+      <Field>
+        <FieldLabel htmlFor={`${id}-description`}>Description</FieldLabel>
+        <Input
+          id={`${id}-description`}
+          type="text"
+          name="description"
+          defaultValue={editingTxn ? editingTxn.description : ""}
+          required
+        />
+      </Field>
 
       {isIncome && (
-        <div>
-          <label className={fieldLabelClass}>Customer (optional)</label>
-          <select name="customerId" defaultValue={editingTxn?.customerId ?? ""} className={inputClass}>
-            <option value="">No customer</option>
+        <Field>
+          <FieldLabel htmlFor={`${id}-customer`}>Customer (optional)</FieldLabel>
+          <NativeSelect id={`${id}-customer`} name="customerId" defaultValue={editingTxn?.customerId ?? ""}>
+            <NativeSelectOption value="">No customer</NativeSelectOption>
             {customerOptions.map((c) => (
-              <option key={c.id} value={c.id}>
+              <NativeSelectOption key={c.id} value={c.id}>
                 {c.name}
-              </option>
+              </NativeSelectOption>
             ))}
-          </select>
-        </div>
+          </NativeSelect>
+        </Field>
       )}
 
       {!isIncome && (
-        <div>
-          <label className={fieldLabelClass}>Source (optional)</label>
-          <select name="sourceId" defaultValue={editingTxn?.sourceId ?? ""} className={inputClass}>
-            <option value="">No source</option>
+        <Field>
+          <FieldLabel htmlFor={`${id}-source`}>Source (optional)</FieldLabel>
+          <NativeSelect id={`${id}-source`} name="sourceId" defaultValue={editingTxn?.sourceId ?? ""}>
+            <NativeSelectOption value="">No source</NativeSelectOption>
             {sourceOptions.map((x) => (
-              <option key={x.id} value={x.id}>
+              <NativeSelectOption key={x.id} value={x.id}>
                 {x.name}
-              </option>
+              </NativeSelectOption>
             ))}
-          </select>
-          {sourceOptions.length === 0 && <div className={fieldHintClass}>No sources yet. Add one on the Sources page.</div>}
-        </div>
+          </NativeSelect>
+          {sourceOptions.length === 0 && <FieldDescription>No sources yet. Add one on the Sources page.</FieldDescription>}
+        </Field>
       )}
 
-      <div key={`channel-${state.txnFormType}`}>
-        <label className={fieldLabelClass}>Channel / vendor (optional)</label>
-        <select
+      <Field key={`channel-${state.txnFormType}`}>
+        <FieldLabel htmlFor={`${id}-channel`}>Channel / vendor (optional)</FieldLabel>
+        <NativeSelect
+          id={`${id}-channel`}
           name="channelId"
           defaultValue={editingTxn && editingTxn.type === state.txnFormType ? (editingTxn.channelId ?? "") : ""}
-          className={inputClass}
         >
-          <option value="">No channel</option>
+          <NativeSelectOption value="">No channel</NativeSelectOption>
           {channelOptions.map((ch) => (
-            <option key={ch.id} value={ch.id}>
+            <NativeSelectOption key={ch.id} value={ch.id}>
               {ch.name}
-            </option>
+            </NativeSelectOption>
           ))}
-        </select>
+        </NativeSelect>
         {channelOptions.length === 0 && (
-          <div className={fieldHintClass}>
-            No {state.txnFormType} channels yet. Add one on the Channels page.
-          </div>
+          <FieldDescription>No {state.txnFormType} channels yet. Add one on the Channels page.</FieldDescription>
         )}
-      </div>
-
+      </Field>
     </DialogOverlay>
   );
 }

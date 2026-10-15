@@ -1,10 +1,23 @@
-import { Panel } from "./Panel";
-import type { ChartData } from "@/lib/calculations";
+"use client";
 
-// Renders whichever mode the source's isBarChart/isLineChart flags select.
-// The design's `chartStyle` prop defaults to "line" and there is no UI
-// toggle in the template, so this app hardcodes the line-chart rendering.
-export function CashFlowChart({ chart, isBarChart }: { chart: ChartData; isBarChart: boolean }) {
+import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis } from "recharts";
+import { Panel } from "./Panel";
+import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
+import type { CashFlowBucket } from "@/lib/calculations";
+import { fmtMoney } from "@/lib/format";
+
+const CHART_CONFIG = {
+  inc: { label: "Income", color: "var(--color-accent-500)" },
+  exp: { label: "Expenses", color: "var(--color-graphite)" },
+} satisfies ChartConfig;
+
+const tooltip = <ChartTooltip content={<ChartTooltipContent valueFormatter={fmtMoney} />} />;
+const grid = <CartesianGrid vertical={false} />;
+const xAxis = <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={24} />;
+
+// A line for a trend, bars when the range is a single day and a line would
+// only be two dots.
+export function CashFlowChart({ buckets, isBarChart }: { buckets: CashFlowBucket[]; isBarChart: boolean }) {
   return (
     <Panel className="mb-4.5 p-5">
       <div className="mb-2.5 flex items-center justify-between">
@@ -20,37 +33,32 @@ export function CashFlowChart({ chart, isBarChart }: { chart: ChartData; isBarCh
           </span>
         </div>
       </div>
-      <svg viewBox="0 0 680 220" className="block h-55 w-full">
-        {chart.chartGridLines.map((gl, i) => (
-          <line key={i} x1="40" x2="670" y1={gl.y} y2={gl.y} strokeWidth="1" className="stroke-ink/10" />
-        ))}
+      <ChartContainer config={CHART_CONFIG} className="aspect-auto h-55 w-full">
         {isBarChart ? (
-          <>
-            {chart.chartBarsIncome.map((b, i) => (
-              <rect key={i} x={b.x} y={b.y} width={b.w} height={b.h} className="fill-accent-500" />
-            ))}
-            {chart.chartBarsExpense.map((b, i) => (
-              <rect key={i} x={b.x} y={b.y} width={b.w} height={b.h} className="fill-graphite" />
-            ))}
-          </>
+          <BarChart data={buckets} margin={{ left: 12, right: 12 }}>
+            {grid}
+            {xAxis}
+            {tooltip}
+            <Bar dataKey="inc" fill="var(--color-inc)" maxBarSize={60} />
+            <Bar dataKey="exp" fill="var(--color-exp)" maxBarSize={60} />
+          </BarChart>
         ) : (
-          <>
-            <path d={chart.incomePathD} fill="none" strokeWidth="2" className="stroke-accent-500" />
-            <path d={chart.expensePathD} fill="none" strokeWidth="2" strokeDasharray="4 3" className="stroke-graphite" />
-            {chart.incomeDots.map((d, i) => (
-              <circle key={i} cx={d.x} cy={d.y} r="3" className="fill-accent-500" />
-            ))}
-            {chart.expenseDots.map((d, i) => (
-              <circle key={i} cx={d.x} cy={d.y} r="3" className="fill-graphite" />
-            ))}
-          </>
+          <LineChart data={buckets} margin={{ left: 12, right: 12 }}>
+            {grid}
+            {xAxis}
+            {tooltip}
+            <Line dataKey="inc" type="linear" stroke="var(--color-inc)" strokeWidth={2} dot={{ r: 3, fill: "var(--color-inc)" }} />
+            <Line
+              dataKey="exp"
+              type="linear"
+              stroke="var(--color-exp)"
+              strokeWidth={2}
+              strokeDasharray="4 3"
+              dot={{ r: 3, fill: "var(--color-exp)", strokeDasharray: "" }}
+            />
+          </LineChart>
         )}
-        {chart.chartMonths.map((m, i) => (
-          <text key={i} x={m.x} y="212" fontSize="11" textAnchor="middle" className="fill-ink/60 font-sans">
-            {m.label}
-          </text>
-        ))}
-      </svg>
+      </ChartContainer>
     </Panel>
   );
 }

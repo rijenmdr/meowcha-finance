@@ -1,12 +1,16 @@
 "use client";
 
-import { cx } from "@/lib/cx";
-import { useFinance, useDashboardData } from "@/lib/finance-context";
-import { DialogOverlay, dialogTitleClass, fieldLabelClass, inputClass } from "./DialogOverlay";
+import { useId } from "react";
+import { useFinance, useLookups } from "@/lib/finance-context";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { DialogOverlay } from "./DialogOverlay";
 
 export function CustomerDialog() {
   const { submitCustomer } = useFinance();
-  const { editingCustomer } = useDashboardData();
+  const { editingCustomer } = useLookups();
+  const id = useId();
 
   function handleSubmit(fd: FormData) {
     return submitCustomer({
@@ -19,40 +23,38 @@ export function CustomerDialog() {
   }
 
   return (
-    <DialogOverlay className="max-w-115" onSubmit={handleSubmit}>
-      <div className={dialogTitleClass}>{editingCustomer ? "Edit customer" : "Add customer"}</div>
+    <DialogOverlay title={editingCustomer ? "Edit customer" : "Add customer"} className="max-w-115" onSubmit={handleSubmit}>
+      <Field>
+        <FieldLabel htmlFor={`${id}-name`}>Name</FieldLabel>
+        <Input id={`${id}-name`} type="text" name="name" defaultValue={editingCustomer ? editingCustomer.name : ""} required />
+      </Field>
 
-      <div>
-        <label className={fieldLabelClass}>Name</label>
-        <input type="text" name="name" defaultValue={editingCustomer ? editingCustomer.name : ""} required className={inputClass} />
-      </div>
-
-      <div>
-        <label className={fieldLabelClass}>Company (optional)</label>
-        <input type="text" name="company" defaultValue={editingCustomer ? editingCustomer.company : ""} className={inputClass} />
-      </div>
+      <Field>
+        <FieldLabel htmlFor={`${id}-company`}>Company (optional)</FieldLabel>
+        <Input id={`${id}-company`} type="text" name="company" defaultValue={editingCustomer ? editingCustomer.company : ""} />
+      </Field>
 
       <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className={fieldLabelClass}>Email (optional)</label>
-          <input type="email" name="email" defaultValue={editingCustomer ? editingCustomer.email : ""} className={inputClass} />
-        </div>
-        <div>
-          <label className={fieldLabelClass}>Phone (optional)</label>
-          <input type="tel" name="phone" defaultValue={editingCustomer ? editingCustomer.phone : ""} className={inputClass} />
-        </div>
+        <Field>
+          <FieldLabel htmlFor={`${id}-email`}>Email (optional)</FieldLabel>
+          <Input id={`${id}-email`} type="email" name="email" defaultValue={editingCustomer ? editingCustomer.email : ""} />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor={`${id}-phone`}>Phone (optional)</FieldLabel>
+          <Input id={`${id}-phone`} type="tel" name="phone" defaultValue={editingCustomer ? editingCustomer.phone : ""} />
+        </Field>
       </div>
 
-      <div>
-        <label className={fieldLabelClass}>Notes (optional)</label>
-        <textarea
+      <Field>
+        <FieldLabel htmlFor={`${id}-notes`}>Notes (optional)</FieldLabel>
+        <Textarea
+          id={`${id}-notes`}
           name="notes"
           rows={3}
           defaultValue={editingCustomer ? editingCustomer.notes : ""}
-          className={cx(inputClass, "resize-y")}
+          className="field-sizing-fixed resize-y"
         />
-      </div>
-
+      </Field>
     </DialogOverlay>
   );
 }

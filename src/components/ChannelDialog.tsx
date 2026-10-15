@@ -1,12 +1,17 @@
 "use client";
 
-import { useFinance, useDashboardData } from "@/lib/finance-context";
+import { useId } from "react";
+import { useFinance, useLookups } from "@/lib/finance-context";
 import type { TxnType } from "@/lib/types";
-import { DialogOverlay, dialogTitleClass, fieldHintClass, fieldLabelClass, inputClass } from "./DialogOverlay";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { DialogOverlay } from "./DialogOverlay";
 
 export function ChannelDialog() {
   const { state, submitChannel } = useFinance();
-  const { editingChannel } = useDashboardData();
+  const { editingChannel } = useLookups();
+  const id = useId();
 
   function handleSubmit(fd: FormData) {
     return submitChannel({
@@ -16,39 +21,32 @@ export function ChannelDialog() {
   }
 
   return (
-    <DialogOverlay className="max-w-105" onSubmit={handleSubmit}>
-      <div className={dialogTitleClass}>{editingChannel ? "Edit channel" : "Add channel"}</div>
-
-      <div>
-        <label className={fieldLabelClass}>Type</label>
-        <select
+    <DialogOverlay title={editingChannel ? "Edit channel" : "Add channel"} className="max-w-105" onSubmit={handleSubmit}>
+      <Field>
+        <FieldLabel htmlFor={`${id}-type`}>Type</FieldLabel>
+        <NativeSelect
+          id={`${id}-type`}
           name="type"
           defaultValue={editingChannel ? editingChannel.type : state.txnFormType}
           disabled={!!editingChannel}
-          className={inputClass}
         >
-          <option value="income">Income (sales channel)</option>
-          <option value="expense">Expense (vendor)</option>
-        </select>
-      </div>
+          <NativeSelectOption value="income">Income (sales channel)</NativeSelectOption>
+          <NativeSelectOption value="expense">Expense (vendor)</NativeSelectOption>
+        </NativeSelect>
+      </Field>
 
-      <div>
-        <label className={fieldLabelClass}>Name</label>
-        <input
+      <Field>
+        <FieldLabel htmlFor={`${id}-name`}>Name</FieldLabel>
+        <Input
+          id={`${id}-name`}
           type="text"
           name="name"
           defaultValue={editingChannel ? editingChannel.name : ""}
           required
           pattern=".*\S.*"
-          className={inputClass}
         />
-        {editingChannel && (
-          <div className={fieldHintClass}>
-            Renaming updates every transaction that uses this channel.
-          </div>
-        )}
-      </div>
-
+        {editingChannel && <FieldDescription>Renaming updates every transaction that uses this channel.</FieldDescription>}
+      </Field>
     </DialogOverlay>
   );
 }

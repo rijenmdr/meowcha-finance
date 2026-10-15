@@ -2,17 +2,28 @@
 
 import { useState, useTransition, type FormEvent, type ReactNode } from "react";
 import { useFinance } from "@/lib/finance-context";
-import { cx } from "@/lib/cx";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "@/components/ui/dialog";
+import { FieldGroup } from "@/components/ui/field";
 import { CornerBrackets } from "./CornerBrackets";
+
+// Radix wires aria-describedby itself when a DialogDescription renders; an
+// explicit undefined tells it there is none instead of logging a warning.
+const noDescription = { "aria-describedby": undefined };
 
 // className carries the dialog's max width, e.g. "max-w-105" for 420px.
 // onSubmit may return a promise: the dialog stays open, disabled and showing
 // "Saving…" until it settles, and shows an error instead of closing if it rejects.
 export function DialogOverlay({
+  title,
+  description,
   className,
   onSubmit,
   children,
 }: {
+  title: ReactNode;
+  description?: ReactNode;
   className: string;
   onSubmit: (fd: FormData) => Promise<void> | void;
   children: ReactNode;
@@ -36,37 +47,47 @@ export function DialogOverlay({
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-shade/50 p-5">
-      <form
-        onSubmit={handleSubmit}
-        aria-busy={pending}
-        className={cx("relative w-full border border-line bg-canvas p-6 shadow-dialog", className)}
+    // Escape and outside clicks close the dialog, except while a save is in flight.
+    <Dialog open onOpenChange={(open) => !open && !pending && closeDialog()}>
+      <DialogContent
+        showCloseButton={false}
+        {...(description ? {} : noDescription)}
+        className={cn("max-h-[calc(100%-2.5rem)] overflow-y-auto", className)}
       >
         <CornerBrackets />
-        <fieldset disabled={pending} className="flex min-w-0 flex-col gap-3.5">
-          {children}
+        <form onSubmit={handleSubmit} aria-busy={pending} className="min-w-0">
+          <fieldset disabled={pending} className="flex min-w-0 flex-col gap-3.5">
+            <DialogTitle>{title}</DialogTitle>
+            {description && <DialogDescription className="text-13 text-foreground/60">{description}</DialogDescription>}
 
-          {error && (
-            <div role="alert" className="text-13 text-error">
-              {error}
-            </div>
-          )}
+            <FieldGroup>{children}</FieldGroup>
 
-          <div className="mt-1.5 flex justify-end gap-2">
-            <button type="button" onClick={closeDialog} className={cancelButtonClass}>
-              Cancel
-            </button>
-            <button type="submit" className={cx(saveButtonClass, "inline-flex items-center gap-2")}>
-              {pending && <span aria-hidden className="size-3 animate-spin rounded-full border-2 border-canvas/40 border-t-canvas" />}
-              {pending ? "Saving…" : "Save"}
-            </button>
-          </div>
-        </fieldset>
-      </form>
-    </div>
+            {error && (
+              <div role="alert" className="text-13 text-destructive">
+                {error}
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={closeDialog}>
+                Cancel
+              </Button>
+              <Button type="submit">
+                {pending && (
+                  <span aria-hidden data-icon="inline-start" className="size-3 animate-spin rounded-full border-2 border-primary-foreground/40 border-t-primary-foreground" />
+                )}
+                {pending ? "Saving…" : "Save"}
+              </Button>
+            </DialogFooter>
+          </fieldset>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
+// Still used by the login page and ProductEditorPage, which haven't moved to
+// the shadcn primitives yet. Remove once nothing imports them.
 export const fieldLabelClass = "mb-1.25 block text-12 text-ink/70";
 
 export const inputClass = "min-h-9 w-full border border-line bg-surface px-2.5 py-1.5 text-14";
@@ -75,7 +96,7 @@ export const fieldHintClass = "mt-1 text-11 text-ink/60";
 
 export const dialogTitleClass = "font-condensed text-20 font-semibold";
 
-const cancelButtonClass =
+export const cancelButtonClass =
   "cursor-pointer border border-line bg-transparent px-4 py-2 font-condensed text-14 font-semibold disabled:cursor-default disabled:opacity-70";
 
 export const saveButtonClass =
