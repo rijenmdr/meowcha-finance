@@ -91,6 +91,8 @@ export const TRANSACTION_SORTS = ["date", "description", "category", "channel", 
 
 interface TransactionList {
   total: number;
+  income?: number;
+  expense?: number;
   rows: {
     id: string;
     date: string;
@@ -115,16 +117,38 @@ export async function getTransactionsPage(params: URLSearchParams) {
   const type = params.get("type");
   const filterType: "all" | TxnType = type === "income" || type === "expense" ? type : "all";
   const filterCategory = params.get("category") || "all";
+  const listArgs = {
+    p_start: start,
+    p_end: end,
+    p_type: filterType === "all" ? null : filterType,
+    p_category_id: filterCategory === "all" ? null : filterCategory,
+  };
   const { result, query } = await pagedRpc<TransactionList>(
     "list_transactions",
-    {
-      p_start: start,
-      p_end: end,
-      p_type: filterType === "all" ? null : filterType,
-      p_category_id: filterCategory === "all" ? null : filterCategory,
-    },
+    listArgs,
     parseTableQuery(params, TRANSACTION_SORTS, { sort: "date", desc: true }),
   );
+
+  let income = Number(result.income ?? 0);
+  let expense = Number(result.expense ?? 0);
+
+  // Backward-compatible fallback while older databases still return only rows.
+  if (result.income == null || result.expense == null) {
+    const allRows =
+      result.total <= result.rows.length
+        ? result.rows
+        : (
+            await rpc<Pick<TransactionList, "rows">>("list_transactions", {
+              ...listArgs,
+              p_sort: "date",
+              p_desc: true,
+              p_limit: result.total,
+              p_offset: 0,
+            })
+          ).rows;
+    income = allRows.filter((t) => t.type === "income").reduce((sum, t) => sum + t.amount, 0);
+    expense = allRows.filter((t) => t.type === "expense").reduce((sum, t) => sum + t.amount, 0);
+  }
 
   return {
     query,
@@ -132,6 +156,9 @@ export async function getTransactionsPage(params: URLSearchParams) {
     filterType,
     filterCategory,
     countLabel: plural(result.total, "transaction"),
+    incomeDisplay: fmtMoney(income),
+    expenseDisplay: fmtMoney(expense),
+    cashFlowDisplay: fmtMoney(income - expense),
     rows: result.rows.map((t) => ({
       id: t.id,
       date: t.date,

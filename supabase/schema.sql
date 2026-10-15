@@ -536,6 +536,8 @@ as $$
   )
   select jsonb_build_object(
     'total', (select count(*) from f),
+    'income', coalesce((select sum(f.amount) from f where f.type = 'income'), 0),
+    'expense', coalesce((select sum(f.amount) from f where f.type = 'expense'), 0),
     'rows', coalesce((
       select jsonb_agg(to_jsonb(r) - 'rn' order by r.rn)
       from ranked r
