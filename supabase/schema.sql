@@ -104,13 +104,25 @@ create table if not exists invoices (
   paid boolean not null default false
 );
 
+-- What kind of product it is (Journal, Notebook…). Every product has one.
+create table if not exists product_categories (
+  id text primary key default gen_random_uuid()::text,
+  name text not null
+);
+create unique index if not exists product_categories_name_key on product_categories (lower(btrim(name)));
+
+insert into product_categories (name) values ('Journal')
+on conflict do nothing;
+
 create table if not exists products (
   id text primary key default gen_random_uuid()::text,
   name text not null,
+  category_id text not null references product_categories(id) on delete restrict,
   -- Ordered names of the options each variant sets, e.g. {Color,Type}.
   option_names text[] not null default '{}'
 );
 create unique index if not exists products_name_key on products (lower(btrim(name)));
+create index if not exists products_category_id_idx on products (category_id);
 
 -- One row per sellable variant: each option combination carries its own stock and price.
 create table if not exists product_variants (
@@ -154,8 +166,14 @@ create table if not exists orders (
   -- No on-delete action: a customer with orders can't be deleted.
   customer_id text not null references customers(id),
   order_date date not null,
+  -- 'requested' is a made-to-order request, entered only on create and left by
+  -- conversion (to processing) or cancelling. guard_order_status() enforces the moves.
   order_status text not null default 'processing'
-    check (order_status in ('processing', 'ready_for_delivery', 'out_for_delivery', 'delivered')),
+    constraint orders_order_status_check
+    check (order_status in ('requested', 'processing', 'ready_for_delivery', 'out_for_delivery', 'delivered', 'cancelled')),
+  -- Set when the order is created as a request and kept after conversion.
+  requested_date date,
+  note text,
   -- Kept equal to the sum of order_items.sub_total by save_order().
   sub_total numeric not null default 0 check (sub_total >= 0),
   delivery_charge numeric not null default 0 check (delivery_charge >= 0),
@@ -168,7 +186,8 @@ create table if not exists orders (
   -- Derived so it can never disagree with amount_paid.
   payment_status text generated always as (
     case when amount_paid >= sub_total + delivery_charge then 'paid' else 'partially_paid' end
-  ) stored
+  ) stored,
+  constraint orders_requested_date_check check (order_status <> 'requested' or requested_date is not null)
 );
 
 -- Once assigned, an order number never changes.
@@ -185,6 +204,41 @@ drop trigger if exists orders_keep_order_number on orders;
 create trigger orders_keep_order_number
   before update on orders
   for each row execute function keep_order_number();
+
+create or replace function guard_order_status() returns trigger
+language plpgsql
+as $$
+begin
+  -- A cancelled order is read-only. amount_paid (its payments) and the
+  -- provider/method links (on delete set null) may still change.
+  if old.order_status = 'cancelled' and (
+    new.order_status, new.customer_id, new.order_date, new.sub_total, new.delivery_charge,
+    new.delivery_location, new.note, new.requested_date
+  ) is distinct from (
+    old.order_status, old.customer_id, old.order_date, old.sub_total, old.delivery_charge,
+    old.delivery_location, old.note, old.requested_date
+  ) then
+    raise exception 'Order % is cancelled and can no longer be changed', old.order_number;
+  end if;
+  if new.order_status is distinct from old.order_status then
+    if new.order_status = 'requested' then
+      raise exception 'Order % can''t go back to requested', old.order_number;
+    end if;
+    if old.order_status = 'requested' and new.order_status not in ('processing', 'cancelled') then
+      raise exception 'Request % can only be converted to processing or cancelled', old.order_number;
+    end if;
+    if new.order_status = 'cancelled' and old.order_status not in ('requested', 'processing', 'ready_for_delivery') then
+      raise exception 'Order % can no longer be cancelled', old.order_number;
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists orders_guard_status on orders;
+create trigger orders_guard_status
+  before update on orders
+  for each row execute function guard_order_status();
 
 -- sub_total is stored per line rather than derived from the product's current
 -- price, so later price changes (or a discount on one line) don't rewrite old orders.
@@ -227,6 +281,30 @@ alter table transactions add column if not exists order_id text references order
 alter table transactions drop constraint if exists transactions_order_income_check;
 alter table transactions add constraint transactions_order_income_check check (order_id is null or type = 'income');
 
+-- An order's advance: the one payment the order editor creates and edits.
+alter table transactions add column if not exists is_advance boolean not null default false;
+alter table transactions drop constraint if exists transactions_advance_check;
+alter table transactions add constraint transactions_advance_check check (not is_advance or order_id is not null);
+create unique index if not exists transactions_one_advance_per_order on transactions (order_id) where is_advance;
+
+-- A payment unlinked from its order (the order was deleted, or the row became
+-- an expense) stops being an advance, so the check above holds.
+create or replace function clear_unlinked_advance() returns trigger
+language plpgsql
+as $$
+begin
+  if new.order_id is null then
+    new.is_advance := false;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists transactions_clear_unlinked_advance on transactions;
+create trigger transactions_clear_unlinked_advance
+  before insert or update on transactions
+  for each row execute function clear_unlinked_advance();
+
 alter table categories enable row level security;
 alter table channels enable row level security;
 alter table customers enable row level security;
@@ -234,6 +312,7 @@ alter table sources enable row level security;
 alter table transactions enable row level security;
 alter table budgets enable row level security;
 alter table invoices enable row level security;
+alter table product_categories enable row level security;
 alter table products enable row level security;
 alter table product_variants enable row level security;
 alter table orders enable row level security;
@@ -265,14 +344,27 @@ create trigger transactions_sync_order_amount_paid
   for each row execute function sync_order_amount_paid();
 
 -- Adds one payment to an order as an income transaction. The description and
--- customer come from the order; the app builds the same description
--- (orderPaymentDescription in src/lib/format.ts).
+-- customer come from the order. A request holds only its advance (see
+-- save_order), and a cancelled order takes no payments.
 create or replace function add_order_payment(p_order_id text, p_payment jsonb) returns void
 language plpgsql
 security invoker
 set search_path = public
 as $$
+declare
+  v_status text;
 begin
+  select o.order_status into v_status from orders o where o.id = p_order_id;
+  if not found then
+    raise exception 'Order % not found', p_order_id;
+  end if;
+  if v_status = 'requested' then
+    raise exception 'A request holds one advance payment. Convert it to an order first.';
+  end if;
+  if v_status = 'cancelled' then
+    raise exception 'A cancelled order can''t take payments';
+  end if;
+
   insert into transactions (id, date, type, category_id, description, amount, channel_id, customer_id, order_id)
   select
     p_payment->>'id',
@@ -286,17 +378,15 @@ begin
     o.id
   from orders o
   where o.id = p_order_id;
-  if not found then
-    raise exception 'Order % not found', p_order_id;
-  end if;
 end;
 $$;
 
 -- Writes an order and replaces its items in one transaction, so a failed item
 -- insert can't leave an order whose sub_total doesn't match its lines. Returns
 -- the order number, which the DB assigns on first save. p_payment, when given,
--- is recorded as the order's first payment. amount_paid isn't written here: the
--- trigger above keeps it equal to the order's payments.
+-- is the order's advance: inserted (is_advance) the first time, updated after.
+-- amount_paid isn't written here: the trigger above keeps it equal to the
+-- order's payments. Items of a request (requested_date set) never touch stock.
 -- Update-then-insert rather than `on conflict`, which would evaluate the
 -- order_number default (and burn a sequence value) on every edit.
 create or replace function save_order(p_order jsonb, p_items jsonb, p_payment jsonb default null) returns text
@@ -309,8 +399,20 @@ declare
   v_sub_total numeric := (select coalesce(sum((x->>'sub_total')::numeric), 0) from jsonb_array_elements(p_items) x);
   -- Read before the items are replaced: an order that predates stock tracking stays untracked.
   v_tracked boolean := coalesce((select bool_and(stock_tracked) from order_items where order_id = p_order->>'id'), true);
+  v_status text;
+  v_requested_date date;
   v_order_number text;
+  v_advance_id text;
 begin
+  select o.order_status into v_status from orders o where o.id = v_id;
+  if v_status = 'cancelled' then
+    raise exception 'A cancelled order can''t be edited';
+  end if;
+  if p_order->>'order_status' = 'cancelled' then
+    raise exception 'Cancel an order with cancel_order';
+  end if;
+
+  -- requested_date is never overwritten once set.
   update orders set
     customer_id = p_order->>'customer_id',
     order_date = (p_order->>'order_date')::date,
@@ -319,15 +421,16 @@ begin
     delivery_charge = (p_order->>'delivery_charge')::numeric,
     delivery_location = p_order->>'delivery_location',
     delivery_provider_id = p_order->>'delivery_provider_id',
-    payment_method_id = p_order->>'payment_method_id'
+    payment_method_id = p_order->>'payment_method_id',
+    note = p_order->>'note'
   where id = v_id
-  returning order_number into v_order_number;
+  returning order_number, requested_date into v_order_number, v_requested_date;
 
   if found then
     -- Payments follow the order's customer.
     update transactions set customer_id = p_order->>'customer_id' where order_id = v_id;
   else
-    insert into orders (id, customer_id, order_date, order_status, sub_total, delivery_charge, delivery_location, delivery_provider_id, payment_method_id)
+    insert into orders (id, customer_id, order_date, order_status, sub_total, delivery_charge, delivery_location, delivery_provider_id, payment_method_id, note, requested_date)
     values (
       v_id,
       p_order->>'customer_id',
@@ -337,9 +440,17 @@ begin
       (p_order->>'delivery_charge')::numeric,
       p_order->>'delivery_location',
       p_order->>'delivery_provider_id',
-      p_order->>'payment_method_id'
+      p_order->>'payment_method_id',
+      p_order->>'note',
+      case when p_order->>'order_status' = 'requested'
+        then coalesce((p_order->>'requested_date')::date, (p_order->>'order_date')::date) end
     )
-    returning order_number into v_order_number;
+    returning order_number, requested_date into v_order_number, v_requested_date;
+  end if;
+
+  -- Requests are made to order: their items never touch stock, even after conversion.
+  if v_requested_date is not null then
+    v_tracked := false;
   end if;
 
   delete from order_items where order_id = v_id;
@@ -348,10 +459,64 @@ begin
   from jsonb_array_elements(p_items) x;
 
   if p_payment is not null then
-    perform add_order_payment(v_id, p_payment);
+    select t.id into v_advance_id from transactions t where t.order_id = v_id and t.is_advance;
+    if v_advance_id is null then
+      insert into transactions (id, date, type, category_id, description, amount, channel_id, customer_id, order_id, is_advance)
+      values (
+        p_payment->>'id',
+        (p_payment->>'date')::date,
+        'income',
+        p_payment->>'category_id',
+        'Advance for ' || v_order_number,
+        (p_payment->>'amount')::numeric,
+        p_payment->>'channel_id',
+        p_order->>'customer_id',
+        v_id,
+        true
+      );
+    else
+      update transactions set
+        date = (p_payment->>'date')::date,
+        amount = (p_payment->>'amount')::numeric,
+        category_id = p_payment->>'category_id',
+        channel_id = p_payment->>'channel_id'
+      where id = v_advance_id;
+    end if;
   end if;
 
   return v_order_number;
+end;
+$$;
+
+-- Cancels an order. Stock-tracked items go back on the shelf and are marked
+-- untracked, so deleting the order later doesn't restore them a second time.
+create or replace function cancel_order(p_id text) returns void
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  v_status text;
+begin
+  select o.order_status into v_status from orders o where o.id = p_id for update;
+  if not found then
+    raise exception 'Order % not found', p_id;
+  end if;
+  if v_status not in ('requested', 'processing', 'ready_for_delivery') then
+    raise exception 'This order can no longer be cancelled';
+  end if;
+
+  update product_variants v set quantity = v.quantity + x.quantity
+  from (
+    select oi.variant_id, sum(oi.quantity) as quantity
+    from order_items oi
+    where oi.order_id = p_id and oi.stock_tracked
+    group by oi.variant_id
+  ) x
+  where v.id = x.variant_id;
+  update order_items set stock_tracked = false where order_id = p_id and stock_tracked;
+
+  update orders set order_status = 'cancelled' where id = p_id;
 end;
 $$;
 
@@ -366,13 +531,17 @@ as $$
 declare
   v_id text := p_product->>'id';
 begin
-  insert into products (id, name, option_names)
+  insert into products (id, name, category_id, option_names)
   values (
     v_id,
     p_product->>'name',
+    p_product->>'category_id',
     array(select jsonb_array_elements_text(p_product->'option_names'))
   )
-  on conflict (id) do update set name = excluded.name, option_names = excluded.option_names;
+  on conflict (id) do update set
+    name = excluded.name,
+    category_id = excluded.category_id,
+    option_names = excluded.option_names;
 
   delete from product_variants
   where product_id = v_id
@@ -394,6 +563,8 @@ revoke execute on function next_order_number() from public, anon, authenticated;
 revoke execute on function add_order_payment(text, jsonb) from public, anon, authenticated;
 revoke execute on function save_order(jsonb, jsonb, jsonb) from public, anon, authenticated;
 revoke execute on function save_product(jsonb, jsonb) from public, anon, authenticated;
+revoke execute on function cancel_order(text) from public, anon, authenticated;
+grant execute on function cancel_order(text) to service_role;
 grant execute on function save_product(jsonb, jsonb) to service_role;
 grant execute on function next_order_number() to service_role;
 grant execute on function add_order_payment(text, jsonb) to service_role;
@@ -413,8 +584,9 @@ create index if not exists orders_customer_id_idx on orders (customer_id);
 create index if not exists order_items_variant_id_idx on order_items (variant_id);
 
 -- Every transaction with the amount the reports count. A delivery charge
--- collected for an outside provider isn't income, so it comes off the order's
--- earliest payments first. Self delivery keeps its charge. A correlated
+-- collected for an outside provider isn't income, so once the order is
+-- delivered it comes off the order's earliest payments first (until then the
+-- payments count in full). Self delivery keeps its charge. A correlated
 -- subquery rather than a window, so date filters still use the index.
 -- security_invoker keeps RLS in force for anyone but the service role.
 create or replace view report_transactions with (security_invoker = true) as
@@ -438,6 +610,7 @@ select
     from orders o
     left join delivery_providers dp on dp.id = o.delivery_provider_id
     where o.id = t.order_id
+      and o.order_status = 'delivered'
       and o.delivery_charge > 0
       and lower(btrim(coalesce(dp.name, ''))) <> 'self delivery'
   ), 0) as report_amount
@@ -500,6 +673,9 @@ $$;
 
 -- One page of transactions with the names they link to, plus the match count.
 -- p_type / p_category_id are null for "all". Unknown sort keys fall back to newest first.
+-- Rows show the amount received, and delivery_fee is the part of it that is a
+-- delivered order's outside delivery charge (see report_transactions). The
+-- income total leaves that part out, like the Overview's.
 create or replace function list_transactions(
   p_start date, p_end date, p_type text, p_category_id text,
   p_sort text, p_desc boolean, p_limit integer, p_offset integer
@@ -512,8 +688,10 @@ as $$
       t.id, t.date, t.type, t.category_id, t.description, t.amount,
       t.channel_id, t.source_id, t.customer_id, t.order_id,
       c.name as category_name, ch.name as channel_name, cu.name as customer_name,
-      s.name as source_name, o.order_number
+      s.name as source_name, o.order_number,
+      t.amount - rt.report_amount as delivery_fee
     from transactions t
+    join report_transactions rt on rt.id = t.id
     join categories c on c.id = t.category_id
     left join channels ch on ch.id = t.channel_id
     left join customers cu on cu.id = t.customer_id
@@ -536,7 +714,7 @@ as $$
   )
   select jsonb_build_object(
     'total', (select count(*) from f),
-    'income', coalesce((select sum(f.amount) from f where f.type = 'income'), 0),
+    'income', coalesce((select sum(f.amount - f.delivery_fee) from f where f.type = 'income'), 0),
     'expense', coalesce((select sum(f.amount) from f where f.type = 'expense'), 0),
     'rows', coalesce((
       select jsonb_agg(to_jsonb(r) - 'rn' order by r.rn)
@@ -588,9 +766,13 @@ as $$
   )
 $$;
 
--- One page of orders placed in the range, with their items, payment count and
--- last payment (the Record payment dialog's defaults), plus the range's totals.
+-- One page of orders, with their items, payment count, advance and last payment
+-- (the Record payment dialog's defaults), plus the tab's totals. p_tab 'orders'
+-- lists everything but requests placed in the range; 'requests' lists every
+-- pending request, whatever the range.
+drop function if exists list_orders(date, date, text, text, text, text, boolean, integer, integer);
 create or replace function list_orders(
+  p_tab text,
   p_start date, p_end date,
   p_search text,
   p_order_status text,
@@ -604,13 +786,18 @@ as $$
     select
       o.id, o.order_number, o.customer_id, o.order_date, o.order_status, o.sub_total,
       o.delivery_charge, o.delivery_location, o.delivery_provider_id, o.payment_method_id,
-      o.total_price, o.amount_paid, o.payment_status,
+      o.total_price, o.amount_paid, o.payment_status, o.requested_date, o.note,
       cu.name as customer_name, dp.name as delivery_provider_name, pm.name as payment_method_name
     from orders o
     join customers cu on cu.id = o.customer_id
     left join delivery_providers dp on dp.id = o.delivery_provider_id
     left join payment_methods pm on pm.id = o.payment_method_id
-    where o.order_date between p_start and p_end
+    where (
+        case when p_tab = 'requests'
+          then o.order_status = 'requested'
+          else o.order_status <> 'requested' and o.order_date between p_start and p_end
+        end
+      )
       and (p_order_status is null or o.order_status::text = p_order_status)
       and (p_payment_status is null or o.payment_status::text = p_payment_status)
       and (
@@ -636,11 +823,14 @@ as $$
       case when not p_desc then case p_sort when 'totalPrice' then f.total_price when 'amountPaid' then f.amount_paid end end asc,
       case when p_desc then case p_sort when 'totalPrice' then f.total_price when 'amountPaid' then f.amount_paid end end desc,
       case when p_sort = 'status' and not p_desc
-        then array_position(array['processing', 'ready_for_delivery', 'out_for_delivery', 'delivered'], f.order_status) end asc,
+        then array_position(array['requested', 'processing', 'ready_for_delivery', 'out_for_delivery', 'delivered', 'cancelled'], f.order_status) end asc,
       case when p_sort = 'status' and p_desc
-        then array_position(array['processing', 'ready_for_delivery', 'out_for_delivery', 'delivered'], f.order_status) end desc,
+        then array_position(array['requested', 'processing', 'ready_for_delivery', 'out_for_delivery', 'delivered', 'cancelled'], f.order_status) end desc,
+      case when p_sort = 'requestedDate' and not p_desc then f.requested_date end asc,
+      case when p_sort = 'requestedDate' and p_desc then f.requested_date end desc,
       case when p_sort = 'orderDate' and not p_desc then f.order_date end asc,
       case when p_sort = 'orderDate' and not p_desc then f.order_number end asc,
+      case when p_tab = 'requests' then f.requested_date end desc,
       f.order_date desc, f.order_number desc
     ) as rn
     from f
@@ -650,9 +840,15 @@ as $$
   )
   select jsonb_build_object(
     'total', (select count(*) from f),
-    'revenue', coalesce((select sum(f.total_price) from f), 0),
-    'balance_due', coalesce((select sum(f.total_price - f.amount_paid) from f), 0),
-    'open_count', (select count(*) from f where f.order_status <> 'delivered'),
+    -- Orders tab: cancelled orders are listed but left out of the totals.
+    'order_count', (select count(*) from f where f.order_status <> 'cancelled'),
+    'revenue', coalesce((select sum(f.total_price) from f where f.order_status <> 'cancelled'), 0),
+    'balance_due', coalesce((select sum(f.total_price - f.amount_paid) from f where f.order_status <> 'cancelled'), 0),
+    'open_count', (select count(*) from f where f.order_status not in ('delivered', 'cancelled')),
+    -- Requests tab.
+    'pending_count', (select count(*) from f where f.order_status = 'requested'),
+    'request_value', coalesce((select sum(f.total_price) from f where f.order_status = 'requested'), 0),
+    'advance_total', coalesce((select sum(f.amount_paid) from f where f.order_status = 'requested'), 0),
     'rows', coalesce((
       select jsonb_agg((to_jsonb(p) - 'rn') || jsonb_build_object(
         'items', coalesce((
@@ -665,7 +861,9 @@ as $$
           join products pr on pr.id = v.product_id
           where oi.order_id = p.id
         ), '[]'::jsonb),
+        'tracked_units', coalesce((select sum(oi.quantity) from order_items oi where oi.order_id = p.id and oi.stock_tracked), 0),
         'payment_count', (select count(*) from transactions t where t.order_id = p.id),
+        'advance_amount', (select t.amount from transactions t where t.order_id = p.id and t.is_advance),
         'last_payment', (
           select jsonb_build_object('category_id', t.category_id, 'channel_id', t.channel_id)
           from transactions t
@@ -783,14 +981,16 @@ set search_path = public
 as $$
   select jsonb_build_object(
     'orders_without_provider', (select count(*) from orders o
-      where o.delivery_provider_id is null and o.order_date between p_start and p_end),
+      where o.delivery_provider_id is null and o.order_date between p_start and p_end
+        and o.order_status not in ('requested', 'cancelled')),
     'rows', coalesce((
       select jsonb_agg(jsonb_build_object(
         'id', d.id,
         'name', d.name,
         'order_count', (select count(*) from orders o where o.delivery_provider_id = d.id),
         'in_range', coalesce((select sum(o.delivery_charge) from orders o
-          where o.delivery_provider_id = d.id and o.order_date between p_start and p_end), 0)
+          where o.delivery_provider_id = d.id and o.order_date between p_start and p_end
+            and o.order_status not in ('requested', 'cancelled')), 0)
       ) order by d.name)
       from delivery_providers d
     ), '[]'::jsonb)
@@ -803,14 +1003,16 @@ set search_path = public
 as $$
   select jsonb_build_object(
     'orders_without_method', (select count(*) from orders o
-      where o.payment_method_id is null and o.order_date between p_start and p_end),
+      where o.payment_method_id is null and o.order_date between p_start and p_end
+        and o.order_status not in ('requested', 'cancelled')),
     'rows', coalesce((
       select jsonb_agg(jsonb_build_object(
         'id', m.id,
         'name', m.name,
         'order_count', (select count(*) from orders o where o.payment_method_id = m.id),
         'in_range', coalesce((select sum(o.total_price) from orders o
-          where o.payment_method_id = m.id and o.order_date between p_start and p_end), 0)
+          where o.payment_method_id = m.id and o.order_date between p_start and p_end
+            and o.order_status not in ('requested', 'cancelled')), 0)
       ) order by m.name)
       from payment_methods m
     ), '[]'::jsonb)
@@ -818,18 +1020,26 @@ as $$
 $$;
 
 -- Stock totals across every variant, and per product with how many orders use it.
-create or replace function product_summary() returns jsonb
+-- A category filter narrows the totals as well as the rows.
+create or replace function product_summary(p_category_id text default null) returns jsonb
 language sql stable security invoker
 set search_path = public
 as $$
+  with fp as (
+    select p.* from products p where p_category_id is null or p.category_id = p_category_id
+  ), fv as (
+    select v.* from product_variants v join fp on fp.id = v.product_id
+  )
   select jsonb_build_object(
-    'units', coalesce((select sum(v.quantity) from product_variants v), 0),
-    'stock_value', coalesce((select sum(v.quantity * v.price) from product_variants v), 0),
-    'out_of_stock', (select count(*) from product_variants v where v.quantity = 0),
+    'units', coalesce((select sum(fv.quantity) from fv), 0),
+    'stock_value', coalesce((select sum(fv.quantity * fv.price) from fv), 0),
+    'out_of_stock', (select count(*) from fv where fv.quantity = 0),
     'rows', coalesce((
       select jsonb_agg(jsonb_build_object(
         'id', p.id,
         'name', p.name,
+        'category_id', p.category_id,
+        'category_name', c.name,
         'option_names', to_jsonb(p.option_names),
         'variants', coalesce((
           select jsonb_agg(jsonb_build_object('id', v.id, 'options', v.options, 'quantity', v.quantity, 'price', v.price))
@@ -844,9 +1054,23 @@ as $$
           where v.product_id = p.id
         )
       ) order by p.name)
-      from products p
+      from fp p
+      join product_categories c on c.id = p.category_id
     ), '[]'::jsonb)
   )
+$$;
+
+-- Each product category with how many products it holds.
+create or replace function product_category_summary() returns jsonb
+language sql stable security invoker
+set search_path = public
+as $$
+  select coalesce(jsonb_agg(jsonb_build_object(
+    'id', c.id,
+    'name', c.name,
+    'product_count', (select count(*) from products p where p.category_id = c.id)
+  ) order by c.name), '[]'::jsonb)
+  from product_categories c
 $$;
 
 -- A product's variants that are on an order, which save_product can't remove.
@@ -867,7 +1091,7 @@ grant select on report_transactions to service_role;
 revoke execute on function overview_summary(date, date, date, date, boolean) from public, anon, authenticated;
 revoke execute on function list_transactions(date, date, text, text, text, boolean, integer, integer) from public, anon, authenticated;
 revoke execute on function list_invoices(date, date, date, text, boolean, integer, integer) from public, anon, authenticated;
-revoke execute on function list_orders(date, date, text, text, text, text, boolean, integer, integer) from public, anon, authenticated;
+revoke execute on function list_orders(text, date, date, text, text, text, text, boolean, integer, integer) from public, anon, authenticated;
 revoke execute on function budget_summary(date, date) from public, anon, authenticated;
 revoke execute on function customer_summary(date, date) from public, anon, authenticated;
 revoke execute on function category_summary() from public, anon, authenticated;
@@ -875,12 +1099,13 @@ revoke execute on function channel_summary() from public, anon, authenticated;
 revoke execute on function source_summary(date, date) from public, anon, authenticated;
 revoke execute on function delivery_provider_summary(date, date) from public, anon, authenticated;
 revoke execute on function payment_method_summary(date, date) from public, anon, authenticated;
-revoke execute on function product_summary() from public, anon, authenticated;
+revoke execute on function product_summary(text) from public, anon, authenticated;
+revoke execute on function product_category_summary() from public, anon, authenticated;
 revoke execute on function variants_in_use(text) from public, anon, authenticated;
 grant execute on function overview_summary(date, date, date, date, boolean) to service_role;
 grant execute on function list_transactions(date, date, text, text, text, boolean, integer, integer) to service_role;
 grant execute on function list_invoices(date, date, date, text, boolean, integer, integer) to service_role;
-grant execute on function list_orders(date, date, text, text, text, text, boolean, integer, integer) to service_role;
+grant execute on function list_orders(text, date, date, text, text, text, text, boolean, integer, integer) to service_role;
 grant execute on function budget_summary(date, date) to service_role;
 grant execute on function customer_summary(date, date) to service_role;
 grant execute on function category_summary() to service_role;
@@ -888,5 +1113,6 @@ grant execute on function channel_summary() to service_role;
 grant execute on function source_summary(date, date) to service_role;
 grant execute on function delivery_provider_summary(date, date) to service_role;
 grant execute on function payment_method_summary(date, date) to service_role;
-grant execute on function product_summary() to service_role;
+grant execute on function product_summary(text) to service_role;
+grant execute on function product_category_summary() to service_role;
 grant execute on function variants_in_use(text) to service_role;

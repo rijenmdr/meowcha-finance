@@ -125,9 +125,13 @@ insert into invoices (id, customer_id, issue_date, due_date, amount, paid) value
   ('i7', 'c5', '2026-08-10', '2026-09-24', 320, false)
 on conflict (id) do nothing;
 
-insert into products (id, name, option_names) values
+insert into products (id, name, category_id, option_names)
+select v.id, v.name, c.id, v.option_names
+from (values
   ('pr0', 'A5 Notebook', array['Color', 'Type']),
   ('pr1', 'Pocket Journal', array['Color', 'Type'])
+) as v(id, name, option_names)
+join product_categories c on lower(btrim(c.name)) = 'journal'
 on conflict (id) do nothing;
 
 insert into product_variants (id, product_id, options, quantity, price) values

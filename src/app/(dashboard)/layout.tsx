@@ -1,14 +1,15 @@
 import { Suspense, type ReactNode } from "react";
 import { redirect } from "next/navigation";
-import { FinanceProvider } from "@/lib/finance-context";
-import { getLookups } from "@/lib/data";
-import { requireSupabaseUser } from "@/lib/supabase-auth";
-import { Sidebar } from "@/components/Sidebar";
-import { Header } from "@/components/Header";
-import { TopNav } from "@/components/TopNav";
-import { DialogHost } from "@/components/DialogHost";
-import { DashboardSkeleton } from "@/components/DashboardSkeleton";
-import { ContentFrame } from "@/components/ContentFrame";
+import { LookupsProvider } from "@/components/shared/lookups-provider";
+import { getLookups } from "@/lib/queries/lookups";
+import { requireSupabaseUser } from "@/lib/supabase/auth";
+import { Sidebar } from "@/components/shared/layout/sidebar";
+import { Header } from "@/components/shared/layout/header";
+import { TopNav } from "@/components/shared/layout/top-nav";
+import { DialogHost } from "@/components/shared/dialogs/dialog-host";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { DashboardSkeleton } from "@/components/shared/layout/dashboard-skeleton";
+import { ContentFrame } from "@/components/shared/layout/content-frame";
 
 export const dynamic = "force-dynamic";
 
@@ -19,13 +20,14 @@ async function DashboardContent({ children }: { children: ReactNode }) {
   const lookups = await getLookups();
 
   return (
-    <FinanceProvider lookups={lookups}>
+    <LookupsProvider lookups={lookups}>
       <div className="max-w-310 min-w-0 flex-1 px-9 pt-7 pb-15">
         <Header />
         <ContentFrame>{children}</ContentFrame>
       </div>
       <DialogHost />
-    </FinanceProvider>
+      <ConfirmDialog />
+    </LookupsProvider>
   );
 }
 

@@ -1,19 +1,9 @@
-import { getProductsPage } from "@/lib/page-data";
-import { StatCard } from "@/components/StatCard";
-import { ProductsTable } from "@/components/ProductsTable";
+import { ProductsContainer } from "@/components/containers/products/products-container";
+import { getProductsPage } from "@/lib/queries/product";
+import { toSearchParams } from "@/lib/utils/search-params";
 
-export default async function ProductsPage() {
-  const data = await getProductsPage();
+export default async function ProductsPage({ searchParams }: PageProps<"/products">) {
+  const data = await getProductsPage(toSearchParams(await searchParams));
 
-  return (
-    <div>
-      <div className="mb-4.5 grid grid-cols-4 gap-4.5">
-        <StatCard label="Products" value={data.productCountDisplay} />
-        <StatCard label="Units in stock" value={data.unitsInStockDisplay} />
-        <StatCard label="Stock value" value={data.stockValueDisplay} tinted />
-        <StatCard label="Variants out of stock" value={data.outOfStockDisplay} />
-      </div>
-      <ProductsTable rows={data.rows} empty={data.productsEmpty} />
-    </div>
-  );
+  return <ProductsContainer data={data} />;
 }

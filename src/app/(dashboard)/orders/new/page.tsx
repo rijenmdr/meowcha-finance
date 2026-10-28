@@ -1,5 +1,7 @@
-import { OrderEditorPage } from "@/components/OrderEditorPage";
+import { OrderEditorContainer } from "@/components/containers/orders/order-editor-container";
 
-export default function NewOrderPage() {
-  return <OrderEditorPage mode="new" order={null} />;
+export default async function NewOrderPage({ searchParams }: PageProps<"/orders/new">) {
+  const { request } = await searchParams;
+
+  return <OrderEditorContainer mode={request === "1" ? "new-request" : "new"} order={null} />;
 }

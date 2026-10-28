@@ -1,5 +1,5 @@
-import { ProductEditorPage } from "@/components/ProductEditorPage";
+import { ProductEditorContainer } from "@/components/containers/products/product-editor-container";
 
 export default function NewProductPage() {
-  return <ProductEditorPage mode="new" variantIdsInUse={[]} />;
+  return <ProductEditorContainer mode="new" variantIdsInUse={[]} />;
 }

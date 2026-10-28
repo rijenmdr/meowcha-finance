@@ -1,13 +1,8 @@
-import { getChannelsPage } from "@/lib/page-data";
-import { ChannelsTable } from "@/components/ChannelsTable";
+import { ChannelsContainer } from "@/components/containers/channels/channels-container";
+import { getChannelsPage } from "@/lib/queries/channel";
 
 export default async function ChannelsPage() {
   const data = await getChannelsPage();
 
-  return (
-    <div className="grid grid-cols-2 items-start gap-4.5">
-      <ChannelsTable type="income" rows={data.incomeRows} />
-      <ChannelsTable type="expense" rows={data.expenseRows} />
-    </div>
-  );
+  return <ChannelsContainer data={data} />;
 }
