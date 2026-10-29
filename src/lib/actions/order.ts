@@ -4,17 +4,34 @@ import { refresh } from "next/cache";
 import { requireSession } from "@/lib/supabase/auth";
 import { getSupabase } from "@/lib/supabase/server";
 import { id as parseId } from "@/lib/validators/shared";
-import { parseOrder, parseOrderPayment, parseOrderStatus } from "@/lib/validators/order";
+import { searchParentOrders } from "@/lib/queries/order";
+import { parseLinkedRequest, parseOrder, parseOrderPayment, parseOrderStatus, parseParentOrderSearch } from "@/lib/validators/order";
 import type { OrderStatus } from "@/enums/order-status";
-import type { OrderDraft, OrderPayment } from "@/models/order";
+import type { LinkedRequestDraft, OrderDraft, OrderItem, OrderPayment, ParentOrderPage } from "@/models/order";
+
+function itemRows(items: OrderItem[]) {
+  return items.map((item) => ({
+    id: item.id,
+    variant_id: item.variantId,
+    quantity: item.quantity,
+    sub_total: item.subTotal,
+  }));
+}
 
 // Returns the order number, which the DB assigns when the order is first saved.
 // advance, when given, creates the order's advance payment (an income
 // transaction) or updates the one it has; null leaves it as it is.
-export async function saveOrderAction(input: OrderDraft, advance: OrderPayment | null): Promise<string> {
+// linkedRequest, when given, is the shortfall stock can't cover, saved in the
+// same transaction as a request linked to this order.
+export async function saveOrderAction(
+  input: OrderDraft,
+  advance: OrderPayment | null,
+  linkedRequest: LinkedRequestDraft | null = null,
+): Promise<string> {
   await requireSession();
   const order = parseOrder(input);
   const advancePayment = advance === null ? null : parseOrderPayment(advance);
+  const request = linkedRequest === null ? null : parseLinkedRequest(linkedRequest);
   // An RPC rather than two upserts, so the order and its items save atomically.
   const { data, error } = await getSupabase().rpc("save_order", {
     p_order: {
@@ -28,15 +45,30 @@ export async function saveOrderAction(input: OrderDraft, advance: OrderPayment |
       payment_method_id: order.paymentMethodId,
       requested_date: order.requestedDate,
       note: order.note,
+      parent_order_id: order.parentOrderId,
     },
-    p_items: order.items.map((item) => ({
-      id: item.id,
-      variant_id: item.variantId,
-      quantity: item.quantity,
-      sub_total: item.subTotal,
-    })),
+    p_items: itemRows(order.items),
     p_payment: advancePayment && paymentRow(advancePayment),
+    p_request: request && { id: request.id, items: itemRows(request.items) },
   });
+  if (error) throw new Error(error.message);
+  refresh();
+  return data as string;
+}
+
+// The request editor's parent-order picker searches as you type, so it reads
+// through an action rather than a server render. Nothing changes, so no refresh().
+export async function searchParentOrdersAction(search: string, page: number): Promise<ParentOrderPage> {
+  await requireSession();
+  const input = parseParentOrderSearch(search, page);
+  return searchParentOrders(input.search, input.page);
+}
+
+// Moves a linked request's items into its order and deletes the request, in
+// one transaction. Returns the order's number.
+export async function mergeRequestAction(id: string): Promise<string> {
+  await requireSession();
+  const { data, error } = await getSupabase().rpc("merge_request", { p_id: parseId(id) });
   if (error) throw new Error(error.message);
   refresh();
   return data as string;
@@ -64,7 +96,7 @@ function paymentRow(payment: OrderPayment) {
 
 export async function deleteOrderAction(id: string): Promise<void> {
   await requireSession();
-  // order_items go with it (on delete cascade).
+  // order_items and linked requests go with it (on delete cascade).
   const { error } = await getSupabase().from("orders").delete().eq("id", parseId(id));
   if (error) throw new Error(error.message);
   refresh();

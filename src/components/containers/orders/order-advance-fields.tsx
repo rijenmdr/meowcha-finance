@@ -28,7 +28,7 @@ export function OrderAdvanceFields({
   const hasAmount = parseAmount(amount) > 0;
   const description = isRequest
     ? "Paid up front for the request. Saved as an income transaction on its date."
-    : "The payment taken with the order, saved as an income transaction on its date.";
+    : "The payment taken with the order, saved as an income transaction on its date. Anything over the order's total goes to its linked requests.";
 
   return (
     <div className="flex flex-col gap-3 border-t border-line-soft pt-3.5">

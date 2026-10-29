@@ -35,7 +35,7 @@ export function OrdersTable({
   const { setSearch } = useUrlSearch();
   const isNavigating = useNavigationStore((state) => state.pendingCount > 0);
   const openDialog = useDialogStore((state) => state.open);
-  const { visibleRows, cancelOrder, deleteOrder, advanceOrderStatus } = useOrderRows(rows);
+  const { visibleRows, cancelOrder, deleteOrder, mergeRequest, advanceOrderStatus } = useOrderRows(rows);
 
   // The editor page picks request, order or read-only mode from the order's status.
   const openEditOrder = useCallback((id: string) => router.push(withDateFilter(`/orders/${id}`)), [router]);
@@ -46,8 +46,8 @@ export function OrdersTable({
   );
 
   const columns = useMemo(
-    () => buildOrderColumns(tab, { openEditOrder, openConvertRequest, openRecordPayment, advanceOrderStatus, cancelOrder, deleteOrder }),
-    [tab, advanceOrderStatus, cancelOrder, deleteOrder, openConvertRequest, openEditOrder, openRecordPayment],
+    () => buildOrderColumns(tab, { openEditOrder, openConvertRequest, openRecordPayment, advanceOrderStatus, cancelOrder, deleteOrder, mergeRequest }),
+    [tab, advanceOrderStatus, cancelOrder, deleteOrder, mergeRequest, openConvertRequest, openEditOrder, openRecordPayment],
   );
   const table = useServerDataTable({ data: visibleRows, columns, rowCount: total, query });
 

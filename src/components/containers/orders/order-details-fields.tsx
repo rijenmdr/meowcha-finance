@@ -9,16 +9,31 @@ import { useLookups } from "@/hooks/use-lookups";
 import { todayISO } from "@/lib/utils/date-math";
 import { fmtDate } from "@/lib/utils/format-date";
 import type { OrderEditorMode } from "@/enums/order-editor-mode";
-import type { Order } from "@/models/order";
+import type { Order, ParentOrder } from "@/models/order";
 
-const readOnlyValueClass = "flex min-h-9 items-center border border-line bg-surface px-2.5 py-1.5 text-14 text-ink/60";
+export const readOnlyValueClass = "flex min-h-9 items-center border border-line bg-surface px-2.5 py-1.5 text-14 text-ink/60";
 
-// Dates, customer, status, delivery and payment method.
-export function OrderDetailsFields({ mode, order }: { mode: OrderEditorMode; order: Order | null }) {
+// Dates, customer, status, delivery and payment method. A linked request
+// (parent set) shows its order's values, disabled: it mirrors that order.
+// statusLock, when set, explains why the status stays processing.
+export function OrderDetailsFields({
+  mode,
+  order,
+  parent,
+  statusLock,
+}: {
+  mode: OrderEditorMode;
+  order: Order | null;
+  parent: ParentOrder | null;
+  statusLock: string | null;
+}) {
   const fieldId = useId();
   const { customerOptions, deliveryProviderOptions, paymentMethodOptions } = useLookups();
   const isRequest = mode === "new-request" || mode === "edit-request";
   const showStatusSelect = mode === "new" || mode === "edit";
+  const linked = parent !== null;
+  const source = parent ?? order;
+  const requestedDate = parent?.orderDate ?? order?.requestedDate ?? null;
 
   return (
     <>
@@ -29,16 +44,16 @@ export function OrderDetailsFields({ mode, order }: { mode: OrderEditorMode; ord
             <div className={readOnlyValueClass}>{order.orderNumber}</div>
           </Field>
         )}
-        {mode === "new-request" && (
+        {mode === "new-request" && !linked && (
           <Field>
             <FieldLabel htmlFor={`${fieldId}-requested`}>Requested date</FieldLabel>
             <Input id={`${fieldId}-requested`} type="date" name="requestedDate" defaultValue={todayISO()} required />
           </Field>
         )}
-        {mode !== "new-request" && order?.requestedDate && (
+        {(mode !== "new-request" || linked) && requestedDate && (
           <Field>
             <FieldLabel>Requested date</FieldLabel>
-            <div className={readOnlyValueClass}>{fmtDate(order.requestedDate)}</div>
+            <div className={readOnlyValueClass}>{fmtDate(requestedDate)}</div>
           </Field>
         )}
         {!isRequest && (
@@ -58,7 +73,7 @@ export function OrderDetailsFields({ mode, order }: { mode: OrderEditorMode; ord
       <div className="grid grid-cols-2 gap-3">
         <Field>
           <FieldLabel htmlFor={`${fieldId}-customer`}>Customer</FieldLabel>
-          <NativeSelect id={`${fieldId}-customer`} name="customerId" defaultValue={order?.customerId ?? ""} required>
+          <NativeSelect id={`${fieldId}-customer`} name="customerId" defaultValue={source?.customerId ?? ""} disabled={linked} required>
             <NativeSelectOption value="" disabled>
               Choose a customer…
             </NativeSelectOption>
@@ -71,14 +86,15 @@ export function OrderDetailsFields({ mode, order }: { mode: OrderEditorMode; ord
           {customerOptions.length === 0 && <FieldDescription>Add a customer first, on the Customers page.</FieldDescription>}
         </Field>
         {/* guard_order_status only lets a request move on to processing. */}
-        {mode === "convert" && (
+        {(mode === "convert" || (showStatusSelect && statusLock)) && (
           <Field>
             <FieldLabel>Order status</FieldLabel>
             <input type="hidden" name="status" value="processing" />
             <div className={readOnlyValueClass}>{ORDER_STATUS_LABELS.processing}</div>
+            {statusLock && <FieldDescription>{statusLock}</FieldDescription>}
           </Field>
         )}
-        {showStatusSelect && (
+        {showStatusSelect && !statusLock && (
           <Field>
             <FieldLabel htmlFor={`${fieldId}-status`}>Order status</FieldLabel>
             <NativeSelect id={`${fieldId}-status`} name="status" defaultValue={order ? order.status : "processing"}>
@@ -94,11 +110,18 @@ export function OrderDetailsFields({ mode, order }: { mode: OrderEditorMode; ord
       <div className="grid grid-cols-2 gap-3">
         <Field>
           <FieldLabel htmlFor={`${fieldId}-location`}>Delivery location (optional)</FieldLabel>
-          <Input id={`${fieldId}-location`} type="text" name="deliveryLocation" defaultValue={order?.deliveryLocation ?? ""} placeholder="Street, area, or landmark" />
+          <Input
+            id={`${fieldId}-location`}
+            type="text"
+            name="deliveryLocation"
+            defaultValue={source?.deliveryLocation ?? ""}
+            disabled={linked}
+            placeholder="Street, area, or landmark"
+          />
         </Field>
         <Field>
           <FieldLabel htmlFor={`${fieldId}-provider`}>Delivery provider (optional)</FieldLabel>
-          <NativeSelect id={`${fieldId}-provider`} name="deliveryProviderId" defaultValue={order?.deliveryProviderId ?? ""}>
+          <NativeSelect id={`${fieldId}-provider`} name="deliveryProviderId" defaultValue={source?.deliveryProviderId ?? ""} disabled={linked}>
             <NativeSelectOption value="">No provider</NativeSelectOption>
             {deliveryProviderOptions.map((provider) => (
               <NativeSelectOption key={provider.id} value={provider.id}>
@@ -113,7 +136,7 @@ export function OrderDetailsFields({ mode, order }: { mode: OrderEditorMode; ord
       <div className="grid grid-cols-2 gap-3">
         <Field>
           <FieldLabel htmlFor={`${fieldId}-method`}>Payment method (optional)</FieldLabel>
-          <NativeSelect id={`${fieldId}-method`} name="paymentMethodId" defaultValue={order?.paymentMethodId ?? ""}>
+          <NativeSelect id={`${fieldId}-method`} name="paymentMethodId" defaultValue={source?.paymentMethodId ?? ""} disabled={linked}>
             <NativeSelectOption value="">No method</NativeSelectOption>
             {paymentMethodOptions.map((method) => (
               <NativeSelectOption key={method.id} value={method.id}>

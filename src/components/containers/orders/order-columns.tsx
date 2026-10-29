@@ -1,5 +1,6 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import { SortableHeader } from "@/components/shared/sortable-header";
+import { ORDER_STATUS_CLASSES } from "@/constants/order-status";
 import { cn } from "@/lib/utils/cn";
 import type { OrdersTab } from "@/enums/orders-tab";
 import type { CancellableRow, OrderRow, PaymentTarget } from "@/models/order";
@@ -13,6 +14,7 @@ export interface OrderRowHandlers {
   advanceOrderStatus: (row: OrderRow) => void;
   cancelOrder: (row: CancellableRow) => void;
   deleteOrder: (row: OrderRow) => void;
+  mergeRequest: (row: OrderRow) => void;
 }
 
 const pillClass = "inline-block px-2 py-0.75 text-11 whitespace-nowrap";
@@ -81,6 +83,12 @@ function requestColumns(handlers: OrderRowHandlers): ColumnDef<OrderRow>[] {
         </div>
       ),
     },
+    {
+      id: "parentOrder",
+      enableSorting: false,
+      header: () => "Parent order",
+      cell: ({ row }) => <div className="whitespace-nowrap">{row.original.parentOrderNumber ?? <span className="text-ink/40">—</span>}</div>,
+    },
     customerColumn,
     itemsColumn,
     totalColumn,
@@ -104,6 +112,11 @@ function orderColumns(handlers: OrderRowHandlers): ColumnDef<OrderRow>[] {
           <div className="font-semibold">{row.original.orderNumber}</div>
           <div className={subTextClass}>{row.original.dateDisplay}</div>
           {row.original.fromRequest && <div className="text-11 text-accent-600">From request · {row.original.requestedDisplay}</div>}
+          {row.original.pendingRequestsLabel && (
+            <span className={cn(pillClass, "mt-1", ORDER_STATUS_CLASSES.requested)} title={`Waiting on ${row.original.pendingRequestNumbers.join(", ")}`}>
+              {row.original.pendingRequestsLabel}
+            </span>
+          )}
         </div>
       ),
     },

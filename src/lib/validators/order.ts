@@ -2,7 +2,7 @@ import "server-only";
 import { orderTotals } from "@/lib/helpers/order-totals";
 import { roundMoney } from "@/lib/utils/format-money";
 import type { OrderStatus } from "@/enums/order-status";
-import type { OrderDraft, OrderItem, OrderPayment } from "@/models/order";
+import type { LinkedRequestDraft, OrderDraft, OrderItem, OrderPayment } from "@/models/order";
 import { date, fail, id, num, obj, str } from "./shared";
 
 // What the editor may save. "cancelled" only comes from cancelOrderAction.
@@ -16,14 +16,11 @@ export function parseOrderStatus(value: unknown): OrderStatus {
   return value as OrderStatus;
 }
 
-// Totals and payment status are recomputed rather than trusted, matching what
-// the DB derives, so the returned order is exactly what save_order() stores.
-// orderNumber is left out: the DB assigns it and ignores any sent value.
-export function parseOrder(value: unknown): OrderDraft {
-  const v = obj(value, "order");
-  if (!SAVE_ORDER_STATUSES.includes(v.status as OrderStatus)) fail("status");
-  if (!Array.isArray(v.items) || v.items.length === 0 || v.items.length > 200) fail("items");
-  const items = v.items.map((raw): OrderItem => {
+// A variant may appear twice on an order: once from stock and once merged in
+// from a request. The DB's unique index rejects any other repeat.
+function parseItems(value: unknown): OrderItem[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 200) fail("items");
+  const items = value.map((raw): OrderItem => {
     const item = obj(raw, "item");
     const quantity = num(item.quantity, "quantity");
     if (!Number.isInteger(quantity) || quantity < 1) fail("quantity");
@@ -34,7 +31,17 @@ export function parseOrder(value: unknown): OrderDraft {
       subTotal: roundMoney(num(item.subTotal, "subTotal")),
     };
   });
-  if (new Set(items.map((i) => i.variantId)).size !== items.length) fail("items");
+  if (new Set(items.map((i) => i.id)).size !== items.length) fail("items");
+  return items;
+}
+
+// Totals and payment status are recomputed rather than trusted, matching what
+// the DB derives, so the returned order is exactly what save_order() stores.
+// orderNumber is left out: the DB assigns it and ignores any sent value.
+export function parseOrder(value: unknown): OrderDraft {
+  const v = obj(value, "order");
+  if (!SAVE_ORDER_STATUSES.includes(v.status as OrderStatus)) fail("status");
+  const items = parseItems(v.items);
   const deliveryCharge = roundMoney(num(v.deliveryCharge, "deliveryCharge"));
   const amountPaid = roundMoney(num(v.amountPaid, "amountPaid"));
   const totals = orderTotals(items, deliveryCharge, amountPaid);
@@ -52,9 +59,22 @@ export function parseOrder(value: unknown): OrderDraft {
     // save_order only stores it on a new request, and never overwrites it.
     requestedDate: v.requestedDate != null && v.requestedDate !== "" ? date(v.requestedDate, "requestedDate") : null,
     note: v.note != null && String(v.note).trim() !== "" ? str(v.note, "note", { max: 2000 }).trim() : null,
+    // save_order only reads it on a new request, and copies the rest from that order.
+    parentOrderId: v.parentOrderId != null && v.parentOrderId !== "" ? id(v.parentOrderId, "parentOrderId") : null,
     amountPaid,
     ...totals,
   };
+}
+
+export function parseParentOrderSearch(search: unknown, page: unknown): { search: string; page: number } {
+  const p = num(page, "page");
+  if (!Number.isInteger(p) || p < 1 || p > 1000) fail("page");
+  return { search: str(search, "search", { max: 100 }).trim(), page: p };
+}
+
+export function parseLinkedRequest(value: unknown): LinkedRequestDraft {
+  const v = obj(value, "request");
+  return { id: id(v.id), items: parseItems(v.items) };
 }
 
 export function parseOrderPayment(value: unknown): OrderPayment {

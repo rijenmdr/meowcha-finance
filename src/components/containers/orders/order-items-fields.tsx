@@ -8,15 +8,14 @@ import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { cn } from "@/lib/utils/cn";
 import { fmtMoney } from "@/lib/utils/format-money";
 import type { ItemDraft, OrderItemsState } from "@/hooks/use-order-items";
+import { OrderToMake } from "./order-to-make";
 
 const itemGridClass = "grid grid-cols-[minmax(0,1fr)_4.5rem_7.5rem_1.75rem] items-center gap-2";
+const rowNoteClass = "col-span-4 -mt-1 text-11";
 
-// Explains why some variants aren't listed. Null when every variant can be picked.
+// Explains how the variant list works. Null when there's nothing to say.
 function pickerHint(tracksStock: boolean, isRequest: boolean, selectableCount: number): string | null {
-  if (tracksStock) {
-    const listed = selectableCount === 0 ? "Nothing is in stock." : "Only variants in stock are listed.";
-    return `${listed} For something out of stock, save a request instead.`;
-  }
+  if (tracksStock) return "Anything stock can't cover is saved as a request linked to this order, to make.";
   if (isRequest) {
     const listed = selectableCount === 0 ? "Nothing is out of stock." : "Only out-of-stock variants are listed.";
     return `${listed} For something in stock, create an order instead.`;
@@ -33,17 +32,27 @@ export function OrderItemsFields({
   tracksStock: boolean;
   isRequest: boolean;
 }) {
-  const { items, productChoices, canPick, selectableCount, hasProducts, updateItem, addItem, removeItem } = orderItems;
+  const { items, productChoices, canPick, selectableCount, ownItemCount, hasProducts, shortfallOf, updateItem, addItem, removeItem } = orderItems;
   const hint = pickerHint(tracksStock, isRequest, selectableCount);
 
   function renderItem(item: ItemDraft) {
-    const takenElsewhere = new Set(items.filter((other) => other.id !== item.id).map((other) => other.productId));
-    const chosen = productChoices.find((product) => product.id === item.productId);
-    const choices = productChoices.filter((product) => product.id === item.productId || (!takenElsewhere.has(product.id) && canPick(product)));
+    // Rows merged from a request may repeat a variant; the order's own rows may not.
+    const takenElsewhere = new Set(items.filter((other) => other.id !== item.id && !other.fromRequestNumber).map((other) => other.productId));
+    const choices = productChoices.filter(
+      (product) => product.id === item.productId || item.fromRequestNumber || (!takenElsewhere.has(product.id) && canPick(product)),
+    );
+    const shortfall = shortfallOf(item);
+    const quantity = parseInt(item.quantity, 10) || 0;
 
     return (
       <div key={item.id} className={itemGridClass}>
-        <NativeSelect aria-label="Product" value={item.productId} onChange={(event) => updateItem(item.id, { productId: event.target.value })} required>
+        <NativeSelect
+          aria-label="Product"
+          value={item.productId}
+          onChange={(event) => updateItem(item.id, { productId: event.target.value })}
+          disabled={!!item.fromRequestNumber}
+          required
+        >
           <NativeSelectOption value="">Choose a product…</NativeSelectOption>
           {choices.map((product) => (
             <NativeSelectOption key={product.id} value={product.id}>
@@ -55,7 +64,6 @@ export function OrderItemsFields({
           type="number"
           aria-label="Quantity"
           min="1"
-          max={tracksStock && chosen ? chosen.available : undefined}
           step="1"
           value={item.quantity}
           onChange={(event) => updateItem(item.id, { quantity: event.target.value })}
@@ -81,6 +89,12 @@ export function OrderItemsFields({
         >
           <XIcon strokeWidth={1.5} className="size-3" />
         </Button>
+        {item.fromRequestNumber && <div className={cn(rowNoteClass, "text-accent-600")}>Made to order · from request {item.fromRequestNumber}</div>}
+        {shortfall > 0 && (
+          <div className={cn(rowNoteClass, "text-accent-800")}>
+            {quantity - shortfall} from stock · {shortfall} to make
+          </div>
+        )}
       </div>
     );
   }
@@ -94,11 +108,12 @@ export function OrderItemsFields({
         <span />
       </div>
       <div className="flex flex-col gap-2">{items.map(renderItem)}</div>
-      <Button type="button" variant="link" onClick={addItem} disabled={items.length >= selectableCount} className="mt-2 disabled:opacity-50">
+      <Button type="button" variant="link" onClick={addItem} disabled={ownItemCount >= selectableCount} className="mt-2 disabled:opacity-50">
         + Add item
       </Button>
       {!hasProducts && <FieldDescription className="mt-1">Add products first, on the Products page.</FieldDescription>}
       {hasProducts && hint && <FieldDescription className="mt-1">{hint}</FieldDescription>}
+      <OrderToMake items={orderItems.toMake} productChoices={productChoices} />
     </div>
   );
 }
