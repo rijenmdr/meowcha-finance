@@ -43,6 +43,7 @@ export async function getInvoicesPage(params: URLSearchParams) {
     rows: result.rows.map((inv) => ({
       id: inv.id,
       client: inv.customer_name ?? "—",
+      customerName: inv.customer_name,
       issueDate: inv.issue_date,
       issueDisplay: fmtDate(inv.issue_date),
       dueDate: inv.due_date,

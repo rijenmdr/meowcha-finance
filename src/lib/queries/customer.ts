@@ -1,19 +1,16 @@
 import "server-only";
-import type { Customer } from "@/models/customer";
+import type { Customer, CustomerOption } from "@/models/customer";
+import type { PickerPage } from "@/models/picker";
 import { dateRange } from "@/lib/helpers/date-filter";
+import { pickerArgs, toPickerPage } from "@/lib/helpers/picker-page";
 import { rpc } from "@/lib/supabase/rpc";
-import { getSupabase } from "@/lib/supabase/server";
 import { fmtDate } from "@/lib/utils/format-date";
 import { fmtMoney } from "@/lib/utils/format-money";
 import { plural } from "@/lib/utils/plural";
 
-export async function getCustomers(): Promise<Customer[]> {
-  const { data, error } = await getSupabase()
-    .from("customers")
-    .select("id, name, company, email, phone, notes")
-    .order("name", { ascending: true });
-  if (error) throw new Error(error.message);
-  return data ?? [];
+export async function searchCustomers(search: string, page: number): Promise<PickerPage<CustomerOption>> {
+  const rows = await rpc<CustomerOption[]>("search_customers", pickerArgs(search, page));
+  return toPickerPage(rows, (row) => ({ id: row.id, name: row.name, company: row.company }));
 }
 
 interface CustomerSummary {
@@ -24,6 +21,7 @@ interface CustomerSummary {
     company: string;
     email: string;
     phone: string;
+    notes: string;
     in_range: number;
     lifetime: number;
     payment_count: number;
@@ -40,6 +38,7 @@ export async function getCustomersPage(params: URLSearchParams) {
     name: c.name,
     company: c.company || "—",
     contact: [c.email, c.phone].filter(Boolean).join(" · ") || "—",
+    customer: { id: c.id, name: c.name, company: c.company, email: c.email, phone: c.phone, notes: c.notes } satisfies Customer,
     inRangeIncome: c.in_range,
     inRangeDisplay: fmtMoney(c.in_range),
     lifetimeIncome: c.lifetime,

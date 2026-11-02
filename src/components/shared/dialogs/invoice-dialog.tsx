@@ -6,12 +6,12 @@ import { useSubmitInvoice } from "@/hooks/mutations/use-invoice-mutations";
 import { todayISO } from "@/lib/utils/date-math";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { CustomerPicker } from "@/components/shared/customer-picker";
 import { DialogOverlay } from "./dialog-overlay";
 
 export function InvoiceDialog() {
   const submitInvoice = useSubmitInvoice();
-  const { editingInvoice, customerOptions } = useLookups();
+  const { editingInvoice, initialCustomer } = useLookups();
   const id = useId();
 
   function handleSubmit(fd: FormData) {
@@ -28,14 +28,7 @@ export function InvoiceDialog() {
     <DialogOverlay title={editingInvoice ? "Edit invoice" : "New invoice"} className="max-w-110" onSubmit={handleSubmit}>
       <Field>
         <FieldLabel htmlFor={`${id}-customer`}>Customer (optional)</FieldLabel>
-        <NativeSelect id={`${id}-customer`} name="customerId" defaultValue={editingInvoice?.customerId ?? ""}>
-          <NativeSelectOption value="">No customer</NativeSelectOption>
-          {customerOptions.map((c) => (
-            <NativeSelectOption key={c.id} value={c.id}>
-              {c.name}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
+        <CustomerPicker id={`${id}-customer`} name="customerId" initial={initialCustomer} />
       </Field>
 
       <div className="grid grid-cols-2 gap-3">

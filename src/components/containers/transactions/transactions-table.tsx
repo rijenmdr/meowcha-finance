@@ -9,6 +9,7 @@ import { useServerDataTable } from "@/hooks/use-data-table";
 import { useUrlSearch } from "@/hooks/use-url-search";
 import { useDialogStore } from "@/stores/use-dialog-store";
 import type { TableQuery } from "@/lib/helpers/table-params";
+import { customerRef } from "@/lib/helpers/customer-ref";
 import type { TxnRow } from "@/models/transaction";
 import { buildTransactionColumns } from "./transaction-columns";
 import { TransactionFilters, type TxnFilters } from "./transaction-filters";
@@ -35,7 +36,13 @@ export function TransactionsTable({
   const { visibleRows, deleteTxn } = useTransactionRows(rows);
 
   const openEditTxn = useCallback(
-    (row: TxnRow) => openDialog("txn", { editId: row.id, editingTxn: row.txn, txnFormType: row.txn.type }),
+    (row: TxnRow) =>
+      openDialog("txn", {
+        editId: row.id,
+        editingTxn: row.txn,
+        txnFormType: row.txn.type,
+        initialCustomer: customerRef(row.txn.customerId, row.customerName),
+      }),
     [openDialog],
   );
   const columns = useMemo(() => buildTransactionColumns({ openEditTxn, deleteTxn }), [openEditTxn, deleteTxn]);

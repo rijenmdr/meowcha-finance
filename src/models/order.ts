@@ -1,5 +1,6 @@
 import type { OrderStatus } from "@/enums/order-status";
 import type { PaymentStatus } from "@/enums/payment-status";
+import type { VariantOption } from "./product";
 
 export interface OrderItem {
   id: string;
@@ -13,6 +14,7 @@ export interface OrderItem {
 export interface OrderLine extends OrderItem {
   stockTracked: boolean;
   fromRequestNumber: string | null;
+  variant: VariantOption; // as of now, for the picker's label, price and stock
 }
 
 // The processing order a linked request belongs to. The request mirrors it:
@@ -54,6 +56,7 @@ export interface Order {
   id: string;
   orderNumber: string; // assigned by the DB on first save; never edited
   customerId: string;
+  customerName: string;
   orderDate: string;
   status: OrderStatus;
   items: OrderLine[];
@@ -81,7 +84,7 @@ export interface Order {
 // advance travels separately. parentOrderId links a new request to its order.
 export type OrderDraft = Omit<
   Order,
-  "orderNumber" | "stockTracked" | "advance" | "items" | "parentOrder" | "pendingRequestNumbers" | "linkedRequests"
+  "orderNumber" | "customerName" | "stockTracked" | "advance" | "items" | "parentOrder" | "pendingRequestNumbers" | "linkedRequests"
 > & {
   items: OrderItem[];
   parentOrderId: string | null;

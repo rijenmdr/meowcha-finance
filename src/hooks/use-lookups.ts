@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import { useLookupTables } from "@/components/shared/lookups-provider";
-import { variantLabel } from "@/lib/helpers/variant-label";
 import { fmtMoney, roundMoney } from "@/lib/utils/format-money";
 import { useDialogStore } from "@/stores/use-dialog-store";
 import type { DialogKind } from "@/enums/dialog-kind";
@@ -15,6 +14,8 @@ export function useLookups() {
   const txnFormType = useDialogStore((state) => state.txnFormType);
   const editingTxn = useDialogStore((state) => state.editingTxn);
   const editingInvoice = useDialogStore((state) => state.editingInvoice);
+  const editingCustomer = useDialogStore((state) => state.editingCustomer);
+  const initialCustomer = useDialogStore((state) => state.initialCustomer);
   const paymentTarget = useDialogStore((state) => state.paymentTarget);
 
   return useMemo(() => {
@@ -45,18 +46,11 @@ export function useLookups() {
       txnCategoryOptions: categoryOptions(txnFormType),
       txnChannelOptions: channelOptions(txnFormType),
       incomeChannelOptions: channelOptions("income"),
-      customerOptions: l.customers.map((c) => ({ id: c.id, name: c.name })),
       sourceOptions: l.sources.map((x) => ({ id: x.id, name: x.name })),
       deliveryProviderOptions: l.deliveryProviders.map((x) => ({ id: x.id, name: x.name })),
       paymentMethodOptions: l.paymentMethods.map((x) => ({ id: x.id, name: x.name })),
       productCategoryOptions: l.productCategories.map((x) => ({ id: x.id, name: x.name })),
-      orderProductOptions: l.products.flatMap((p) =>
-        p.variants.map((v) => {
-          const label = variantLabel(p.optionNames, v.options);
-          return { id: v.id, label: label ? `${p.name} · ${label}` : p.name, price: v.price, quantity: v.quantity };
-        }),
-      ),
-      productOptionNameOptions: [...new Set(l.products.flatMap((p) => p.optionNames))].sort((a, b) => a.localeCompare(b)),
+      productOptionNameOptions: l.productOptionNames,
       // Options whose values come from a fixed list (keyed by lower-cased option name).
       productOptionValueOptions: { type: ["Lined", "Blank"] } as Record<string, string[]>,
       defaultPaymentCategoryId,
@@ -64,7 +58,9 @@ export function useLookups() {
       editingTxn: dialog === "txn" ? editingTxn : null,
       editingBudget: editing("budget", l.budgets),
       editingInvoice: dialog === "invoice" ? editingInvoice : null,
-      editingCustomer: editing("customer", l.customers),
+      editingCustomer: dialog === "customer" ? editingCustomer : null,
+      // The customer already on the record being edited, so the picker can show its name.
+      initialCustomer: dialog === "txn" || dialog === "invoice" ? initialCustomer : null,
       editingCategory: editing("category", l.categories),
       editingChannel: editing("channel", l.channels),
       editingSource: editing("source", l.sources),
@@ -73,5 +69,5 @@ export function useLookups() {
       editingProductCategory: editing("productCategory", l.productCategories),
       paymentDialog,
     };
-  }, [dialog, editId, txnFormType, editingTxn, editingInvoice, paymentTarget, l]);
+  }, [dialog, editId, txnFormType, editingTxn, editingInvoice, editingCustomer, initialCustomer, paymentTarget, l]);
 }

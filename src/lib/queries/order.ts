@@ -9,6 +9,7 @@ import { orderStatusCells } from "@/lib/helpers/order-status-cells";
 import { parseOrdersTab, parseTableQuery } from "@/lib/helpers/table-params";
 import { variantLabel } from "@/lib/helpers/variant-label";
 import { pagedRpc, rpc } from "@/lib/supabase/rpc";
+import { toVariantOption } from "./product";
 import { getSupabase } from "@/lib/supabase/server";
 import { fmtDate } from "@/lib/utils/format-date";
 import { fmtMoney, roundMoney } from "@/lib/utils/format-money";
@@ -98,6 +99,7 @@ interface OrderItemRow {
   sub_total: number;
   stock_tracked: boolean;
   from_request_number: string | null;
+  product_variants: { options: Record<string, string>; price: number; quantity: number; products: { name: string; option_names: string[] } };
 }
 
 // One order with its items and advance payment, for the order editor.
@@ -107,7 +109,7 @@ export async function getOrder(id: string): Promise<Order | null> {
     db
       .from("orders")
       .select(
-        "id, order_number, customer_id, order_date, order_status, sub_total, delivery_charge, delivery_location, delivery_provider_id, payment_method_id, total_price, amount_paid, payment_status, requested_date, note, parent_order_id, order_items (id, variant_id, quantity, sub_total, stock_tracked, from_request_number)",
+        "id, order_number, customer_id, order_date, order_status, sub_total, delivery_charge, delivery_location, delivery_provider_id, payment_method_id, total_price, amount_paid, payment_status, requested_date, note, parent_order_id, customers (name), order_items (id, variant_id, quantity, sub_total, stock_tracked, from_request_number, product_variants (options, price, quantity, products (name, option_names)))",
       )
       .eq("id", id)
       .maybeSingle(),
@@ -123,12 +125,13 @@ export async function getOrder(id: string): Promise<Order | null> {
   if (advanceError) throw new Error(advanceError.message);
   if (pendingError) throw new Error(pendingError.message);
   if (!row) return null;
-  const items: OrderItemRow[] = row.order_items ?? [];
+  const items = (row.order_items ?? []) as unknown as OrderItemRow[];
   const linked: AdvanceHolderRow[] = pending ?? [];
   return {
     id: row.id,
     orderNumber: row.order_number,
     customerId: row.customer_id,
+    customerName: (row.customers as unknown as { name: string } | null)?.name ?? "",
     orderDate: row.order_date,
     status: row.order_status,
     items: items.map((item) => ({
@@ -138,6 +141,14 @@ export async function getOrder(id: string): Promise<Order | null> {
       subTotal: item.sub_total,
       stockTracked: item.stock_tracked,
       fromRequestNumber: item.from_request_number,
+      variant: toVariantOption({
+        id: item.variant_id,
+        name: item.product_variants.products.name,
+        option_names: item.product_variants.products.option_names,
+        options: item.product_variants.options,
+        price: item.product_variants.price,
+        quantity: item.product_variants.quantity,
+      }),
     })),
     subTotal: row.sub_total,
     stockTracked: items.filter((item) => item.from_request_number === null).every((item) => item.stock_tracked),

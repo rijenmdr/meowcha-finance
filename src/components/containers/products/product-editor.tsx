@@ -6,22 +6,20 @@ import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
-import { useLookupTables } from "@/components/shared/lookups-provider";
 import { Panel } from "@/components/shared/panel";
 import { useLookups } from "@/hooks/use-lookups";
 import { useProductForm } from "@/hooks/use-product-form";
 import { withDateFilter } from "@/lib/helpers/date-filter";
+import type { Product } from "@/models/product";
 import { ProductOptionFields } from "./product-option-fields";
 import { ProductVariantRows } from "./product-variant-rows";
 
 // variantIdsInUse: the product's variants that are on an order, loaded by the page on the server.
-export function ProductEditor({ mode, productId, variantIdsInUse }: { mode: "new" | "edit"; productId?: string; variantIdsInUse: string[] }) {
+export function ProductEditor({ mode, product, variantIdsInUse }: { mode: "new" | "edit"; product: Product | null; variantIdsInUse: string[] }) {
   const router = useRouter();
   const nameId = useId();
   const categoryId = useId();
-  const { products } = useLookupTables();
   const { productCategoryOptions } = useLookups();
-  const product = mode === "edit" && productId ? (products.find((p) => p.id === productId) ?? null) : null;
   const form = useProductForm(product, variantIdsInUse);
 
   if (mode === "edit" && !product) {

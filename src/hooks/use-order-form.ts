@@ -72,7 +72,7 @@ export function useOrderForm(mode: OrderEditorMode, order: Order | null) {
   const canPickParent = mode === "new-request";
   const advance = order?.advance ?? null;
   const tracksStock = mode === "new" || (mode === "edit" && !!order?.stockTracked);
-  const orderItems = useOrderItems(order, { tracksStock, isRequest });
+  const orderItems = useOrderItems(order, { tracksStock });
 
   // The advance field holds the whole advance, linked requests' shares included.
   const linkedRequests = order?.linkedRequests ?? { total: 0, advance: 0 };

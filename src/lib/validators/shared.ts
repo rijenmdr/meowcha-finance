@@ -39,3 +39,9 @@ export function txnType(value: unknown): TxnType {
   if (value !== "income" && value !== "expense") fail("type");
   return value;
 }
+
+export function searchPage(search: unknown, page: unknown): { search: string; page: number } {
+  const p = num(page, "page");
+  if (!Number.isInteger(p) || p < 1 || p > 1000) fail("page");
+  return { search: str(search, "search", { max: 100 }).trim(), page: p };
+}

@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import { cn } from "@/lib/utils/cn";
 import type { TableQuery } from "@/lib/helpers/table-params";
 import type { Invoice } from "@/models/invoice";
+import { customerRef } from "@/lib/helpers/customer-ref";
 import { Panel } from "@/components/shared/panel";
 import { DeleteButton, EditButton } from "@/components/shared/icon-button";
 import { useDialogStore } from "@/stores/use-dialog-store";
@@ -17,6 +18,7 @@ import { DataTable } from "@/components/shared/data-table";
 export interface InvoiceRow {
   id: string;
   client: string;
+  customerName: string | null;
   issueDate: string;
   issueDisplay: string;
   dueDate: string;
@@ -75,7 +77,15 @@ export function InvoicesTable({ rows, total, query }: { rows: InvoiceRow[]; tota
                 Mark paid
               </button>
             )}
-            <EditButton onClick={() => openDialog("invoice", { editId: row.original.id, editingInvoice: row.original.invoice })} />
+            <EditButton
+              onClick={() =>
+                openDialog("invoice", {
+                  editId: row.original.id,
+                  editingInvoice: row.original.invoice,
+                  initialCustomer: customerRef(row.original.invoice.customerId, row.original.customerName),
+                })
+              }
+            />
             <DeleteButton onClick={() => deleteInvoice(row.original.id)} />
           </div>
         ),

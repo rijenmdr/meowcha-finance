@@ -4,6 +4,7 @@ import { useId } from "react";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { CustomerPicker } from "@/components/shared/customer-picker";
 import { ORDER_STATUS_LABELS } from "@/constants/order-status";
 import { useLookups } from "@/hooks/use-lookups";
 import { todayISO } from "@/lib/utils/date-math";
@@ -28,12 +29,13 @@ export function OrderDetailsFields({
   statusLock: string | null;
 }) {
   const fieldId = useId();
-  const { customerOptions, deliveryProviderOptions, paymentMethodOptions } = useLookups();
+  const { deliveryProviderOptions, paymentMethodOptions } = useLookups();
   const isRequest = mode === "new-request" || mode === "edit-request";
   const showStatusSelect = mode === "new" || mode === "edit";
   const linked = parent !== null;
   const source = parent ?? order;
   const requestedDate = parent?.orderDate ?? order?.requestedDate ?? null;
+  const initialCustomer = source ? { id: source.customerId, name: source.customerName } : null;
 
   return (
     <>
@@ -73,17 +75,7 @@ export function OrderDetailsFields({
       <div className="grid grid-cols-2 gap-3">
         <Field>
           <FieldLabel htmlFor={`${fieldId}-customer`}>Customer</FieldLabel>
-          <NativeSelect id={`${fieldId}-customer`} name="customerId" defaultValue={source?.customerId ?? ""} disabled={linked} required>
-            <NativeSelectOption value="" disabled>
-              Choose a customer…
-            </NativeSelectOption>
-            {customerOptions.map((customer) => (
-              <NativeSelectOption key={customer.id} value={customer.id}>
-                {customer.name}
-              </NativeSelectOption>
-            ))}
-          </NativeSelect>
-          {customerOptions.length === 0 && <FieldDescription>Add a customer first, on the Customers page.</FieldDescription>}
+          <CustomerPicker id={`${fieldId}-customer`} name="customerId" initial={initialCustomer} disabled={linked} required />
         </Field>
         {/* guard_order_status only lets a request move on to processing. */}
         {(mode === "convert" || (showStatusSelect && statusLock)) && (

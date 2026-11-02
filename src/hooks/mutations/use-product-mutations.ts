@@ -1,5 +1,4 @@
 import { useCallback } from "react";
-import { useLookupTables } from "@/components/shared/lookups-provider";
 import { deleteProductAction, saveProductAction } from "@/lib/actions/product";
 import { newId } from "@/lib/utils/new-id";
 import { confirm, notify } from "@/stores/use-confirm-store";
@@ -8,8 +7,6 @@ import type { NamedRow } from "@/models/table-row";
 import { useOptimisticRows } from "../use-optimistic-rows";
 
 export function useSubmitProduct() {
-  const { products } = useLookupTables();
-
   // Resolves to a message when the product can't be saved; throws if the server save fails.
   return async function submitProduct(values: ProductSubmitValues, variantIdsInUse: string[]): Promise<string | null> {
     const rec: Product = {
@@ -24,18 +21,13 @@ export function useSubmitProduct() {
         price: Math.abs(v.price || 0),
       })),
     };
-    // Mirrors the DB's unique product name, case-insensitively.
-    if (products.some((p) => p.id !== rec.id && p.name.trim().toLowerCase() === rec.name.toLowerCase())) {
-      return `"${rec.name}" already exists. Add a variant to that product instead.`;
-    }
     // A removed variant that is on an order would be rejected by the DB.
     const kept = new Set(rec.variants.map((v) => v.id));
     const removedInUse = variantIdsInUse.filter((id) => !kept.has(id)).length;
     if (removedInUse > 0) {
       return `${removedInUse === 1 ? "A removed variant is" : "Removed variants are"} on an order. Remove ${removedInUse === 1 ? "it" : "them"} from those orders first.`;
     }
-    await saveProductAction(rec);
-    return null;
+    return saveProductAction(rec);
   };
 }
 

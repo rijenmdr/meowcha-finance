@@ -2,7 +2,7 @@ import "server-only";
 import { MAX_PRODUCT_OPTIONS } from "@/constants/product";
 import { roundMoney } from "@/lib/utils/format-money";
 import type { Product, ProductVariant } from "@/models/product";
-import { fail, id, num, obj, str } from "./shared";
+import { fail, id, num, obj, searchPage, str } from "./shared";
 
 export function parseProduct(value: unknown): Product {
   const v = obj(value, "product");
@@ -27,5 +27,14 @@ export function parseProduct(value: unknown): Product {
     categoryId: id(v.categoryId, "categoryId"),
     optionNames,
     variants,
+  };
+}
+
+export function parseVariantSearch(search: unknown, page: unknown, excludeIds: unknown, outOfStockOnly: unknown) {
+  if (!Array.isArray(excludeIds) || excludeIds.length > 200) fail("excludeIds");
+  return {
+    ...searchPage(search, page),
+    excludeIds: excludeIds.map((x) => id(x, "excludeIds")),
+    outOfStockOnly: outOfStockOnly === true,
   };
 }

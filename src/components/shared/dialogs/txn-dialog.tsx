@@ -10,6 +10,7 @@ import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { CustomerPicker } from "@/components/shared/customer-picker";
 import { DialogOverlay } from "./dialog-overlay";
 
 // The group variant would otherwise squeeze items to px-2 when spacing is 0.
@@ -19,7 +20,7 @@ export function TxnDialog() {
   const submitTxn = useSubmitTxn();
   const txnFormType = useDialogStore((state) => state.txnFormType);
   const setTxnFormType = useDialogStore((state) => state.setTxnFormType);
-  const { editingTxn, txnCategoryOptions: categoryOptions, txnChannelOptions: channelOptions, customerOptions, sourceOptions } = useLookups();
+  const { editingTxn, txnCategoryOptions: categoryOptions, txnChannelOptions: channelOptions, initialCustomer, sourceOptions } = useLookups();
   const id = useId();
 
   const isIncome = txnFormType === "income";
@@ -107,14 +108,7 @@ export function TxnDialog() {
       {isIncome && (
         <Field>
           <FieldLabel htmlFor={`${id}-customer`}>Customer (optional)</FieldLabel>
-          <NativeSelect id={`${id}-customer`} name="customerId" defaultValue={editingTxn?.customerId ?? ""}>
-            <NativeSelectOption value="">No customer</NativeSelectOption>
-            {customerOptions.map((c) => (
-              <NativeSelectOption key={c.id} value={c.id}>
-                {c.name}
-              </NativeSelectOption>
-            ))}
-          </NativeSelect>
+          <CustomerPicker id={`${id}-customer`} name="customerId" initial={initialCustomer} />
         </Field>
       )}
 

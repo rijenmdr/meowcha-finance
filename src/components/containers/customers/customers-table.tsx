@@ -2,6 +2,7 @@
 
 import type { ColumnDef } from "@tanstack/react-table";
 import { useMemo } from "react";
+import type { Customer } from "@/models/customer";
 import { Panel } from "@/components/shared/panel";
 import { DeleteButton, EditButton } from "@/components/shared/icon-button";
 import { useDialogStore } from "@/stores/use-dialog-store";
@@ -24,6 +25,7 @@ interface CustomerRow {
   lastDate: string;
   lastDisplay: string;
   orderCount: number;
+  customer: Customer;
 }
 
 const subLineClass = "mt-0.5 text-11 text-ink/60";
@@ -74,7 +76,7 @@ export function CustomersTable({ rows, empty }: { rows: CustomerRow[]; empty: bo
         header: () => null,
         cell: ({ row }) => (
           <div className="text-right whitespace-nowrap">
-            <EditButton onClick={() => openDialog("customer", { editId: row.original.id })} />
+            <EditButton onClick={() => openDialog("customer", { editId: row.original.id, editingCustomer: row.original.customer })} />
             <DeleteButton onClick={() => deleteCustomer(row.original)} />
           </div>
         ),
