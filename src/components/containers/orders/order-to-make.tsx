@@ -3,7 +3,7 @@ import type { OrderItem } from "@/models/order";
 
 // What stock can't cover, which saving splits off into a request linked to the
 // order. Merging that request later brings the items back onto the order.
-export function OrderToMake({ items, variants }: { items: OrderItem[]; variants: { id: string; label: string }[] }) {
+export function OrderToMake({ items }: { items: OrderItem[] }) {
   if (items.length === 0) return null;
   return (
     <div className="mt-3 border border-accent-200 bg-accent-50 px-3 py-2.5">
@@ -13,7 +13,7 @@ export function OrderToMake({ items, variants }: { items: OrderItem[]; variants:
         {items.map((item) => (
           <li key={item.id} className="flex justify-between gap-3">
             <span>
-              {item.quantity} × {variants.find((variant) => variant.id === item.variantId)?.label ?? "Product"}
+              {item.quantity} × {item.itemName}{item.itemDetails ? ` · ${item.itemDetails}` : ""}
             </span>
             <span>{fmtMoney(item.subTotal)}</span>
           </li>

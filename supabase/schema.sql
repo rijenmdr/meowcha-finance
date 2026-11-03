@@ -269,7 +269,9 @@ create trigger orders_guard_status
 create table if not exists order_items (
   id text primary key,
   order_id text not null references orders(id) on delete cascade,
-  variant_id text not null references product_variants(id),
+  variant_id text references product_variants(id),
+  item_name text not null,
+  item_details text not null default '',
   quantity integer not null check (quantity > 0),
   sub_total numeric not null check (sub_total >= 0),
   -- False for items saved before stock tracking began: their orders never touch stock.
@@ -290,9 +292,9 @@ language plpgsql
 set search_path = public
 as $$
 begin
-  if tg_op = 'INSERT' and new.stock_tracked then
+  if tg_op = 'INSERT' and new.stock_tracked and new.variant_id is not null then
     update product_variants set quantity = quantity - new.quantity where id = new.variant_id;
-  elsif tg_op = 'DELETE' and old.stock_tracked then
+  elsif tg_op = 'DELETE' and old.stock_tracked and old.variant_id is not null then
     update product_variants set quantity = quantity + old.quantity where id = old.variant_id;
   end if;
   return null;
@@ -498,12 +500,13 @@ declare
   -- Read before the items are replaced, leaving out lines merged from a request:
   -- an order that predates stock tracking stays untracked.
   v_tracked boolean := coalesce((
-    select bool_and(stock_tracked) from order_items where order_id = p_order->>'id' and from_request_number is null
+    select bool_and(stock_tracked) from order_items where order_id = p_order->>'id' and from_request_number is null and variant_id is not null
   ), true);
   -- Lines kept by id keep their own tracking and origin.
   v_old jsonb := coalesce((
     select jsonb_object_agg(oi.id, jsonb_build_object(
-      'stock_tracked', oi.stock_tracked, 'from_request_number', oi.from_request_number, 'requested_date', oi.requested_date
+      'stock_tracked', oi.stock_tracked, 'variant_id', oi.variant_id,
+      'from_request_number', oi.from_request_number, 'requested_date', oi.requested_date
     ))
     from order_items oi
     where oi.order_id = p_order->>'id'
@@ -600,10 +603,15 @@ begin
   end if;
 
   delete from order_items where order_id = v_id;
-  insert into order_items (id, order_id, variant_id, quantity, sub_total, stock_tracked, from_request_number, requested_date)
+  insert into order_items (id, order_id, variant_id, item_name, item_details, quantity, sub_total, stock_tracked, from_request_number, requested_date)
   select
-    x->>'id', v_id, x->>'variant_id', (x->>'quantity')::integer, (x->>'sub_total')::numeric,
-    coalesce((v_old->(x->>'id')->>'stock_tracked')::boolean, v_tracked),
+    x->>'id', v_id, nullif(x->>'variant_id', ''), x->>'item_name', coalesce(x->>'item_details', ''),
+    (x->>'quantity')::integer, (x->>'sub_total')::numeric,
+    case
+      when nullif(x->>'variant_id', '') is null then false
+      when v_old->(x->>'id')->>'variant_id' is null then v_tracked
+      else coalesce((v_old->(x->>'id')->>'stock_tracked')::boolean, v_tracked)
+    end,
     v_old->(x->>'id')->>'from_request_number',
     (v_old->(x->>'id')->>'requested_date')::date
   from jsonb_array_elements(p_items) x;
@@ -1014,10 +1022,8 @@ as $$
         or exists (
           select 1
           from order_items oi
-          join product_variants v on v.id = oi.variant_id
-          join products pr on pr.id = v.product_id
           where oi.order_id = o.id
-            and pr.name ilike '%' || trim(p_search) || '%'
+            and (oi.item_name ilike '%' || trim(p_search) || '%' or oi.item_details ilike '%' || trim(p_search) || '%')
         )
       )
   ),
@@ -1060,11 +1066,9 @@ as $$
           select jsonb_agg(jsonb_build_object(
             'id', oi.id, 'variant_id', oi.variant_id, 'quantity', oi.quantity, 'sub_total', oi.sub_total,
             'from_request_number', oi.from_request_number,
-            'product_name', pr.name, 'option_names', to_jsonb(pr.option_names), 'options', v.options
-          ) order by pr.name, oi.from_request_number nulls first, oi.id)
+            'item_name', oi.item_name, 'item_details', oi.item_details
+          ) order by oi.item_name, oi.from_request_number nulls first, oi.id)
           from order_items oi
-          join product_variants v on v.id = oi.variant_id
-          join products pr on pr.id = v.product_id
           where oi.order_id = p.id
         ), '[]'::jsonb),
         'pending_request_numbers', coalesce((

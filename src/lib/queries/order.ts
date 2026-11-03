@@ -7,7 +7,6 @@ import type { Order, ParentOrder, ParentOrderPage } from "@/models/order";
 import { dateRange } from "@/lib/helpers/date-filter";
 import { orderStatusCells } from "@/lib/helpers/order-status-cells";
 import { parseOrdersTab, parseTableQuery } from "@/lib/helpers/table-params";
-import { variantLabel } from "@/lib/helpers/variant-label";
 import { pagedRpc, rpc } from "@/lib/supabase/rpc";
 import { toVariantOption } from "./product";
 import { getSupabase } from "@/lib/supabase/server";
@@ -94,12 +93,14 @@ async function getParentOrder(id: string): Promise<ParentOrder | null> {
 
 interface OrderItemRow {
   id: string;
-  variant_id: string;
+  variant_id: string | null;
+  item_name: string;
+  item_details: string;
   quantity: number;
   sub_total: number;
   stock_tracked: boolean;
   from_request_number: string | null;
-  product_variants: { options: Record<string, string>; price: number; quantity: number; products: { name: string; option_names: string[] } };
+  product_variants: { options: Record<string, string>; price: number; quantity: number; products: { name: string; option_names: string[] } } | null;
 }
 
 // One order with its items and advance payment, for the order editor.
@@ -109,7 +110,7 @@ export async function getOrder(id: string): Promise<Order | null> {
     db
       .from("orders")
       .select(
-        "id, order_number, customer_id, order_date, order_status, sub_total, delivery_charge, delivery_location, delivery_provider_id, payment_method_id, total_price, amount_paid, payment_status, requested_date, note, parent_order_id, customers (name), order_items (id, variant_id, quantity, sub_total, stock_tracked, from_request_number, product_variants (options, price, quantity, products (name, option_names)))",
+        "id, order_number, customer_id, order_date, order_status, sub_total, delivery_charge, delivery_location, delivery_provider_id, payment_method_id, total_price, amount_paid, payment_status, requested_date, note, parent_order_id, customers (name), order_items (id, variant_id, item_name, item_details, quantity, sub_total, stock_tracked, from_request_number, product_variants (options, price, quantity, products (name, option_names)))",
       )
       .eq("id", id)
       .maybeSingle(),
@@ -137,21 +138,29 @@ export async function getOrder(id: string): Promise<Order | null> {
     items: items.map((item) => ({
       id: item.id,
       variantId: item.variant_id,
+      isCustom: item.variant_id === null,
+      itemName: item.item_name,
+      itemDetails: item.item_details,
       quantity: item.quantity,
       subTotal: item.sub_total,
       stockTracked: item.stock_tracked,
       fromRequestNumber: item.from_request_number,
-      variant: toVariantOption({
-        id: item.variant_id,
-        name: item.product_variants.products.name,
-        option_names: item.product_variants.products.option_names,
-        options: item.product_variants.options,
-        price: item.product_variants.price,
-        quantity: item.product_variants.quantity,
-      }),
+      variant: item.product_variants
+        ? {
+            ...toVariantOption({
+              id: item.variant_id!,
+              name: item.product_variants.products.name,
+              option_names: item.product_variants.products.option_names,
+              options: item.product_variants.options,
+              price: item.product_variants.price,
+              quantity: item.product_variants.quantity,
+            }),
+            label: item.item_details ? `${item.item_name} · ${item.item_details}` : item.item_name,
+          }
+        : null,
     })),
     subTotal: row.sub_total,
-    stockTracked: items.filter((item) => item.from_request_number === null).every((item) => item.stock_tracked),
+    stockTracked: items.filter((item) => item.from_request_number === null && item.variant_id !== null).every((item) => item.stock_tracked),
     deliveryCharge: row.delivery_charge,
     deliveryLocation: row.delivery_location,
     deliveryProviderId: row.delivery_provider_id,
@@ -201,7 +210,7 @@ interface OrderList {
     delivery_provider_name: string | null;
     payment_method_name: string | null;
     parent_order_number: string | null;
-    items: { quantity: number; from_request_number: string | null; product_name: string; option_names: string[]; options: Record<string, string> }[];
+    items: { quantity: number; from_request_number: string | null; item_name: string; item_details: string }[];
     pending_request_numbers: string[];
     tracked_units: number;
     payment_count: number;
@@ -275,9 +284,9 @@ export async function getOrdersPage(params: URLSearchParams) {
         paymentMethod: o.payment_method_name,
         itemsSummary: o.items
           .map((i) => {
-            const label = variantLabel(i.option_names, i.options);
             const made = i.from_request_number ? " (made to order)" : "";
-            return `${i.quantity} × ${label ? `${i.product_name} · ${label}` : i.product_name}${made}`;
+            const details = i.item_details ? ` · ${i.item_details}` : "";
+            return `${i.quantity} × ${i.item_name}${details}${made}`;
           })
           .join(", "),
         unitsLabel: plural(units, "unit"),

@@ -52,8 +52,8 @@ interface VariantSearchRow {
 }
 
 export function toVariantOption(row: VariantSearchRow): VariantOption {
-  const label = variantLabel(row.option_names, row.options);
-  return { id: row.id, label: label ? `${row.name} · ${label}` : row.name, price: row.price, quantity: row.quantity };
+  const details = variantLabel(row.option_names, row.options);
+  return { id: row.id, name: row.name, details, label: details ? `${row.name} · ${details}` : row.name, price: row.price, quantity: row.quantity };
 }
 
 export async function searchVariants(search: string, page: number, excludeIds: string[], outOfStockOnly: boolean): Promise<PickerPage<VariantOption>> {

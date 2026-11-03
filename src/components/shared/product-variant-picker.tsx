@@ -40,6 +40,7 @@ export function ProductVariantPicker({
       emptyText={outOfStockOnly ? "No out-of-stock products found." : "No products found."}
       required
       disabled={disabled}
+      className="w-full"
     />
   );
 }

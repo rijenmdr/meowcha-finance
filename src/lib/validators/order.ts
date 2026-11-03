@@ -24,9 +24,17 @@ function parseItems(value: unknown): OrderItem[] {
     const item = obj(raw, "item");
     const quantity = num(item.quantity, "quantity");
     if (!Number.isInteger(quantity) || quantity < 1) fail("quantity");
+    const itemName = str(item.itemName, "itemName", { max: 200 }).trim();
+    if (itemName === "") fail("itemName");
+    const variantId = item.variantId == null || item.variantId === "" ? null : id(item.variantId, "variantId");
+    const isCustom = item.isCustom === true;
+    if (isCustom !== (variantId === null)) fail("variantId");
     return {
       id: id(item.id),
-      variantId: id(item.variantId, "variantId"),
+      variantId,
+      isCustom,
+      itemName,
+      itemDetails: str(item.itemDetails, "itemDetails", { max: 500 }).trim(),
       quantity,
       subTotal: roundMoney(num(item.subTotal, "subTotal")),
     };

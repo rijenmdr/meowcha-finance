@@ -13,6 +13,8 @@ function itemRows(items: OrderItem[]) {
   return items.map((item) => ({
     id: item.id,
     variant_id: item.variantId,
+    item_name: item.itemName,
+    item_details: item.itemDetails,
     quantity: item.quantity,
     sub_total: item.subTotal,
   }));

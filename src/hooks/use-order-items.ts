@@ -8,21 +8,27 @@ import type { VariantOption } from "@/models/product";
 
 export interface ItemDraft {
   id: string;
+  isCustom: boolean;
   variant: VariantOption | null; // picked from the server-side search; carries the price and stock
+  itemName: string;
+  itemDetails: string;
   quantity: string;
   subTotal: string;
   fromRequestNumber: string | null; // merged in from a linked request, so made to order
 }
 
 function blankItem(): ItemDraft {
-  return { id: newId(), variant: null, quantity: "1", subTotal: "", fromRequestNumber: null };
+  return { id: newId(), isCustom: false, variant: null, itemName: "", itemDetails: "", quantity: "1", subTotal: "", fromRequestNumber: null };
 }
 
 function buildItemDrafts(order: Order | null): ItemDraft[] {
   if (!order) return [blankItem()];
   return order.items.map((item) => ({
     id: item.id,
+    isCustom: item.variantId === null,
     variant: item.variant,
+    itemName: item.itemName,
+    itemDetails: item.itemDetails,
     quantity: String(item.quantity),
     subTotal: String(item.subTotal),
     fromRequestNumber: item.fromRequestNumber,
@@ -32,7 +38,10 @@ function buildItemDrafts(order: Order | null): ItemDraft[] {
 function toOrderItem(item: ItemDraft): OrderItem {
   return {
     id: item.id,
-    variantId: item.variant?.id ?? "",
+    variantId: item.isCustom ? null : item.variant?.id ?? null,
+    isCustom: item.isCustom,
+    itemName: item.itemName.trim(),
+    itemDetails: item.itemDetails.trim(),
     quantity: parseInt(item.quantity, 10) || 0,
     subTotal: roundMoney(parseAmount(item.subTotal)),
   };
@@ -58,14 +67,16 @@ export function useOrderItems(order: Order | null, { tracksStock }: { tracksStoc
 
   // Units on a row that stock can't cover. Merged rows are already made to order.
   function shortfallOf(item: ItemDraft) {
-    if (!tracksStock || item.fromRequestNumber || !item.variant) return 0;
+    if (!tracksStock || item.isCustom || item.fromRequestNumber || !item.variant) return 0;
     return Math.max(0, (parseInt(item.quantity, 10) || 0) - availableFor(item.variant.id));
   }
 
   const ownItems = items.filter((item) => !item.fromRequestNumber);
   const mergedItems = items.filter((item) => item.fromRequestNumber).map(toOrderItem);
+  const customItems = ownItems.filter((item) => item.isCustom).map(toOrderItem);
+  const catalogItems = ownItems.filter((item) => !item.isCustom && item.variant).map(toOrderItem);
   const split = tracksStock
-    ? splitShortfall(ownItems.filter((item) => item.variant).map(toOrderItem), availableFor)
+    ? splitShortfall(catalogItems, availableFor)
     : { stocked: ownItems.map(toOrderItem), toMake: [] };
 
   function updateItem(id: string, patch: Partial<ItemDraft>) {
@@ -73,8 +84,14 @@ export function useOrderItems(order: Order | null, { tracksStock }: { tracksStoc
       current.map((item) => {
         if (item.id !== id) return item;
         const next = { ...item, ...patch };
-        if (patch.variant !== undefined || patch.quantity !== undefined) {
-          next.subTotal = next.variant ? String(roundMoney(next.variant.price * (parseInt(next.quantity, 10) || 0))) : "";
+        if (patch.variant) {
+          next.isCustom = false;
+          next.itemName = patch.variant.name;
+          next.itemDetails = patch.variant.details;
+          next.subTotal = String(roundMoney(patch.variant.price * (parseInt(next.quantity, 10) || 0)));
+        } else if (patch.quantity !== undefined) {
+          const previousQuantity = parseInt(item.quantity, 10) || 0;
+          next.subTotal = previousQuantity > 0 ? String(roundMoney((parseAmount(item.subTotal) / previousQuantity) * (parseInt(next.quantity, 10) || 0))) : "";
         }
         return next;
       }),
@@ -91,10 +108,9 @@ export function useOrderItems(order: Order | null, { tracksStock }: { tracksStoc
 
   return {
     items,
-    variants: items.flatMap((item) => (item.variant ? [item.variant] : [])),
     shortfallOf,
     // What the order keeps (merged rows included) and what goes to a linked request.
-    orderLines: [...split.stocked, ...mergedItems],
+    orderLines: [...split.stocked, ...(tracksStock ? customItems : []), ...mergedItems],
     toMake: split.toMake,
     updateItem,
     addItem,

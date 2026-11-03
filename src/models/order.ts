@@ -4,7 +4,10 @@ import type { VariantOption } from "./product";
 
 export interface OrderItem {
   id: string;
-  variantId: string;
+  variantId: string | null;
+  isCustom: boolean;
+  itemName: string;
+  itemDetails: string;
   quantity: number;
   subTotal: number; // fixed at order time, not recomputed from the product's price
 }
@@ -14,7 +17,7 @@ export interface OrderItem {
 export interface OrderLine extends OrderItem {
   stockTracked: boolean;
   fromRequestNumber: string | null;
-  variant: VariantOption; // as of now, for the picker's label, price and stock
+  variant: VariantOption | null; // current price and stock; item name/details stay fixed at order time
 }
 
 // The processing order a linked request belongs to. The request mirrors it:

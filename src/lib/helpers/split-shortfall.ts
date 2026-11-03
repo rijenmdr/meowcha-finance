@@ -8,6 +8,10 @@ export function splitShortfall(items: OrderItem[], available: (variantId: string
   const stocked: OrderItem[] = [];
   const toMake: OrderItem[] = [];
   for (const item of items) {
+    if (item.variantId === null) {
+      stocked.push(item);
+      continue;
+    }
     const fromStock = Math.min(item.quantity, Math.max(0, available(item.variantId)));
     const stockSubTotal = roundMoney((item.subTotal * fromStock) / item.quantity);
     if (fromStock > 0) stocked.push({ ...item, quantity: fromStock, subTotal: stockSubTotal });

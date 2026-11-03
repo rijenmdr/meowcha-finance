@@ -25,6 +25,8 @@ export interface ProductSubmitValues {
 // A variant as the order editor's picker lists it: product and options as one label, with price and stock.
 export interface VariantOption {
   id: string;
+  name: string;
+  details: string;
   label: string;
   price: number;
   quantity: number;
